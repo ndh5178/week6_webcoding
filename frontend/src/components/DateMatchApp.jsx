@@ -8,19 +8,24 @@ const MBTI_TYPES = [
 ];
 
 const MOCK_PEOPLE = [
-  { id: 1, name: "김민수", mbti: "INFP", hobby: "독서", comment: "같이 카페에서 책 읽어요!" },
-  { id: 2, name: "이서연", mbti: "ENFJ", hobby: "요리", comment: "맛있는 거 해줄게요~" },
-  { id: 3, name: "박지훈", mbti: "INFP", hobby: "게임", comment: "롤 듀오 할 사람!" },
-  { id: 4, name: "최수진", mbti: "ENTP", hobby: "여행", comment: "다음 주 제주도 갈 사람?" },
-  { id: 5, name: "정우성", mbti: "ISTJ", hobby: "운동", comment: "매일 러닝하는 사람이에요" },
-  { id: 6, name: "한소희", mbti: "ENFP", hobby: "음악", comment: "같이 페스티벌 가요!" },
-  { id: 7, name: "송지은", mbti: "INTP", hobby: "독서", comment: "SF 소설 좋아하는 사람?" },
-  { id: 8, name: "강도윤", mbti: "ESFJ", hobby: "요리", comment: "브런치 카페 탐방 좋아해요" },
+  { id: 1, name: "민수", mbti: "INFP", hobby: "reading", comment: "같이 카페에서 책 읽어요." },
+  { id: 2, name: "서연", mbti: "ENFJ", hobby: "cooking", comment: "맛있는 거 같이 먹으러 가요." },
+  { id: 3, name: "지훈", mbti: "INFP", hobby: "game", comment: "롤 한 판 하실래요?" },
+  { id: 4, name: "수지", mbti: "ENTP", hobby: "travel", comment: "다음 주말에 같이 떠나요?" },
+  { id: 5, name: "우진", mbti: "ISTJ", hobby: "movie", comment: "조용한 영화관 데이트 좋아해요." },
+  { id: 6, name: "소연", mbti: "ENFP", hobby: "music", comment: "같이 페스티벌 가요." },
+  { id: 7, name: "현우", mbti: "INTP", hobby: "reading", comment: "SF 소설 좋아하시나요?" },
+  { id: 8, name: "도윤", mbti: "ESFJ", hobby: "cooking", comment: "브런치 카페 투어 어때요?" },
 ];
 
 const HOBBY_EMOJIS = {
-  "독서": "📚", "요리": "🍳", "게임": "🎮", "여행": "✈️",
-  "운동": "💪", "음악": "🎵", "영화": "🎬", "사진": "📷",
+  reading: "📚",
+  cooking: "🍳",
+  game: "🎮",
+  travel: "✈️",
+  movie: "🎬",
+  music: "🎵",
+  photo: "📷",
 };
 
 const AVATAR_COLORS = [
@@ -68,7 +73,6 @@ export default function DateMatchApp() {
 
   return (
     <section style={S.panel}>
-      {/* ── 헤더 ── */}
       <header style={S.header}>
         <div>
           <p style={S.eyebrow}>PANEL 3</p>
@@ -94,9 +98,8 @@ export default function DateMatchApp() {
       </header>
 
       <div style={S.body}>
-        {/* ── 입력 폼 ── */}
         <div style={S.card}>
-          <p style={S.cardTitle}>프로필을 입력하세요</p>
+          <p style={S.cardTitle}>프로필을 입력하세요.</p>
           <form onSubmit={handleSubmit} style={S.form}>
             <input
               style={S.input}
@@ -118,7 +121,7 @@ export default function DateMatchApp() {
             <input
               style={S.input}
               type="text"
-              placeholder="취미 (예: 독서, 요리...)"
+              placeholder="취미 (예: reading, travel...)"
               value={form.hobby}
               onChange={(e) => setForm((f) => ({ ...f, hobby: e.target.value }))}
             />
@@ -133,24 +136,22 @@ export default function DateMatchApp() {
               {loading ? (
                 <span style={S.loadingWrap}>
                   <span style={S.heartPulse}>&#x2764;&#xFE0F;</span>
-                  <span>매칭 중...</span>
+                  <span>매칭 중..</span>
                 </span>
               ) : (
-                "내 운명의 짝 찾기"
+                "내 짝궁 찾기"
               )}
             </button>
           </form>
         </div>
 
-        {/* ── 로딩 ── */}
         {loading && (
           <div style={S.loadingSection}>
             <div style={S.loadingHeart}>&#x2764;&#xFE0F;</div>
-            <p style={S.loadingText}>매칭 중...</p>
+            <p style={S.loadingText}>매칭 중..</p>
           </div>
         )}
 
-        {/* ── 결과 ── */}
         {results && !loading && (
           <div style={S.resultsSection}>
             <div style={S.resultsBanner}>
@@ -179,7 +180,7 @@ export default function DateMatchApp() {
                     <div style={S.matchInfo}>
                       <span style={S.mbtiTag}>{person.mbti}</span>
                       <span style={S.hobbyTag}>
-                        {HOBBY_EMOJIS[person.hobby] || "🎯"} {person.hobby}
+                        {HOBBY_EMOJIS[person.hobby] || "✨"} {person.hobby}
                       </span>
                     </div>
                   </div>
@@ -198,16 +199,14 @@ export default function DateMatchApp() {
           </div>
         )}
 
-        {/* ── 빈 상태 ── */}
         {!submitted && !loading && (
           <div style={S.emptyState}>
             <div style={S.emptyHeart}>&#x1F498;</div>
-            <p style={S.emptyText}>프로필을 입력하고<br />매칭 버튼을 눌러보세요!</p>
+            <p style={S.emptyText}>프로필을 입력하고<br />매칭 버튼을 눌러보세요.</p>
           </div>
         )}
       </div>
 
-      {/* ── CSS 애니메이션 ── */}
       <style>{`
         @keyframes heartPulse {
           0%, 100% { transform: scale(1); }
@@ -226,7 +225,6 @@ export default function DateMatchApp() {
   );
 }
 
-// ─── 패널용 스타일 (다크 테마, 3분할에 맞춤) ──────────
 const S = {
   panel: {
     minHeight: "720px",
@@ -266,8 +264,6 @@ const S = {
     flexDirection: "column",
     gap: 16,
   },
-
-  // 입력 카드
   card: {
     borderRadius: 16,
     padding: "16px",
@@ -330,8 +326,6 @@ const S = {
     display: "inline-block",
     animation: "heartPulse 0.8s infinite",
   },
-
-  // 로딩
   loadingSection: {
     textAlign: "center",
     padding: "32px 0",
@@ -345,8 +339,6 @@ const S = {
     fontSize: 13,
     color: "#94a3b8",
   },
-
-  // 결과
   resultsSection: {
     display: "flex",
     flexDirection: "column",
@@ -450,8 +442,6 @@ const S = {
     color: "#94a3b8",
     fontStyle: "italic",
   },
-
-  // 빈 상태
   emptyState: {
     flex: 1,
     display: "flex",

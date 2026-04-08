@@ -6,7 +6,7 @@
 
 ```json
 {
-  "query": "SELECT * FROM comments;"
+  "query": "SELECT * FROM profiles;"
 }
 ```
 
@@ -27,14 +27,14 @@
     "type": "SELECT",
     "children": [
       { "type": "COLUMNS", "value": "*" },
-      { "type": "FROM", "value": "comments" }
+      { "type": "FROM", "value": "profiles" }
     ]
   },
   "rows": [
     {
-      "id": "1",
-      "author": "kim",
-      "content": "hello"
+      "name": "Mina",
+      "mbti": "ENFP",
+      "hobby": "travel"
     }
   ],
   "rawOutput": "..."
@@ -56,7 +56,7 @@
 
 - `rows`
   - Service Panel 전용 데이터
-  - 현재는 `comments` 테이블 결과를 서비스 UI로 렌더링한다
+  - 현재는 `profiles` 테이블 결과를 panel 3 서비스 UI 기준 데이터로 사용한다
 
 - `rawOutput`
   - 디버깅용 원본 엔진 출력
@@ -66,13 +66,13 @@
 현재 서비스 스키마는 아래로 고정한다.
 
 ```text
-comments(id, author, content)
+profiles(name, mbti, hobby)
 ```
 
 각 필드 의미:
-- `id`: 댓글 식별자
-- `author`: 작성자 이름
-- `content`: 댓글 내용
+- `name`: 프로필 이름
+- `mbti`: 성향 타입
+- `hobby`: 관심사 또는 취미
 
 ## 5. C 엔진 작업자가 반드시 지켜야 할 점
 
@@ -81,9 +81,9 @@ comments(id, author, content)
 현재 기준 최소 지원 문법:
 
 ```sql
-INSERT INTO comments VALUES (1, 'kim', 'hello');
-SELECT * FROM comments;
-SELECT author, content FROM comments WHERE id = 1;
+INSERT INTO profiles VALUES ('Mina', 'ENFP', 'travel');
+SELECT * FROM profiles;
+SELECT name, hobby FROM profiles WHERE mbti = 'ENFP';
 ```
 
 ### 파일 실행 모드

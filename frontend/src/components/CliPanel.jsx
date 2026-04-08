@@ -2,16 +2,16 @@ import React, { useEffect, useMemo, useState } from "react";
 
 const DEFAULT_EXAMPLES = [
   {
-    label: "INSERT 예제",
-    query: "INSERT INTO comments VALUES (1, 'kim', 'hello');",
+    label: "INSERT profile",
+    query: "INSERT INTO profiles VALUES ('Mina', 'ENFP', 'travel');",
   },
   {
-    label: "SELECT 전체",
-    query: "SELECT * FROM comments;",
+    label: "SELECT all",
+    query: "SELECT * FROM profiles;",
   },
   {
-    label: "SELECT WHERE",
-    query: "SELECT author, content FROM comments WHERE author = 'kim';",
+    label: "SELECT filter",
+    query: "SELECT name, hobby FROM profiles WHERE mbti = 'ENFP';",
   },
 ];
 
@@ -116,14 +116,14 @@ export default function CliPanel({
         </span>
         <h2 style={{ margin: 0, fontSize: "24px" }}>CLI Panel</h2>
         <p style={{ margin: 0, color: "#93a7c4", fontSize: "14px", lineHeight: 1.6 }}>
-          SQL 입력을 받고 실행 요청만 부모로 전달합니다. 실제 실행과 결과 처리는 이
-          패널 밖에서 이루어집니다.
+          SQL 입력을 받고 실행 요청만 부모로 전달합니다. 예제는 panel 3의 profile
+          도메인에 맞춰 두었고, 실제 실행과 결과 처리는 바깥에서 담당합니다.
         </p>
       </header>
 
       <div style={cardStyle}>
         <div style={{ marginBottom: "12px", fontSize: "14px", fontWeight: 700 }}>
-          예제 SQL
+          Example SQL
         </div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: "10px" }}>
           {normalizedExamples.map((example) => (
@@ -158,7 +158,7 @@ export default function CliPanel({
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="예: SELECT * FROM comments;"
+          placeholder="예: SELECT * FROM profiles;"
           spellCheck={false}
           style={{
             width: "100%",
@@ -177,10 +177,12 @@ export default function CliPanel({
           }}
         />
 
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px" }}>
+        <div
+          style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px" }}
+        >
           <div style={{ color: "#93a7c4", fontSize: "12px" }}>
             공통 계약: <code>docs/contracts.md</code>
-            {!isRunnable ? " · 실행 핸들러 연결 대기 중" : ""}
+            {!isRunnable ? " / 실행 핸들러 연결 대기 중" : ""}
           </div>
           <button
             type="submit"
@@ -194,7 +196,7 @@ export default function CliPanel({
               cursor: !query.trim() || isRunning || !isRunnable ? "not-allowed" : "pointer",
             }}
           >
-            {isRunning ? "실행 중..." : "실행"}
+            {isRunning ? "실행 중.." : "실행"}
           </button>
         </div>
       </form>
@@ -204,7 +206,7 @@ export default function CliPanel({
 
         {history.length === 0 ? (
           <div style={{ color: "#7d92b3", fontSize: "13px", lineHeight: 1.6 }}>
-            아직 실행한 SQL이 없습니다. 예제 SQL을 선택하거나 직접 입력해보세요.
+            아직 실행한 SQL이 없습니다. 예제 profile query를 고르거나 직접 작성해보세요.
           </div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>

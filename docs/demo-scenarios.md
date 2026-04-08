@@ -5,7 +5,7 @@
 입력:
 
 ```sql
-INSERT INTO comments VALUES (1, 'donghyun', 'hello');
+INSERT INTO profiles VALUES ('Donghyun', 'INTJ', 'music');
 ```
 
 기대 결과:
@@ -18,7 +18,7 @@ INSERT INTO comments VALUES (1, 'donghyun', 'hello');
 입력:
 
 ```sql
-SELECT * FROM comments;
+SELECT * FROM profiles;
 ```
 
 기대 결과:
@@ -31,7 +31,7 @@ SELECT * FROM comments;
 입력:
 
 ```sql
-SELECT author, content FROM comments WHERE id = 1;
+SELECT name, hobby FROM profiles WHERE mbti = 'INTJ';
 ```
 
 기대 결과:
@@ -44,7 +44,7 @@ SELECT author, content FROM comments WHERE id = 1;
 입력:
 
 ```sql
-INSERT INTO comments VALUES (1, 'donghyun');
+INSERT INTO profiles VALUES ('Donghyun', 'INTJ');
 ```
 
 기대 결과:
@@ -57,8 +57,8 @@ INSERT INTO comments VALUES (1, 'donghyun');
 현재는 아래처럼 여러 문장을 한 번에 보내는 것을 기본 시나리오로 잡지 않는다.
 
 ```sql
-INSERT INTO comments VALUES (1, 'donghyun', 'hello');
-SELECT * FROM comments;
+INSERT INTO profiles VALUES ('Donghyun', 'INTJ', 'music');
+SELECT * FROM profiles;
 ```
 
 현재 권장 방식:

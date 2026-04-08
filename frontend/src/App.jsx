@@ -4,9 +4,9 @@ import CliPanel from "./components/CliPanel";
 import ParseTreePanel from "./components/ParseTreePanel";
 import DateMatchApp from "./components/DateMatchApp";
 
-const DEFAULT_QUERY = "SELECT * FROM comments;";
+const DEFAULT_QUERY = "SELECT * FROM profiles;";
 const DEFAULT_MESSAGE =
-  "왼쪽 CLI에서 SQL을 실행하면 파싱 트리와 서비스 패널이 함께 갱신됩니다.";
+  "왼쪽 CLI에서 profile SQL을 실행하면 parse tree와 panel 3 기준 데이터 흐름이 함께 갱신됩니다.";
 
 export default function App() {
   const [query, setQuery] = useState(DEFAULT_QUERY);
@@ -24,7 +24,7 @@ export default function App() {
 
     if (!trimmedQuery) {
       setError("실행할 SQL을 입력해주세요.");
-      setMessage("빈 쿼리는 실행할 수 없습니다.");
+      setMessage("빈 쿼리는 실행되지 않습니다.");
       setParseTree(null);
       setRows([]);
       setQueryType("");
@@ -77,8 +77,8 @@ export default function App() {
           <h1 style={styles.title}>Cupid SQL Integration Page</h1>
         </div>
         <p style={styles.subtitle}>
-          `semin` 브랜치의 CLI 입력 화면과 `gyugo` 브랜치의 Parse Tree
-          시각화를 현재 통합 페이지에 연결했습니다.
+          패널 1은 profile SQL 입력, 패널 2는 parse tree 시각화, 패널 3은 현재
+          브랜치의 데이트 매칭 서비스 UI를 기준으로 둔 통합 페이지입니다.
         </p>
       </section>
 
