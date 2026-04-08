@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Cupid SQL Integration Page</title>
+    <link rel="stylesheet" href="/vendor/xterm/css/xterm.css" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="page">
+      <section class="hero">
+        <div>
+          <p class="eyebrow">THREE-PANEL SQL DEMO</p>
+          <h1 class="title">Cupid SQL Integration Page</h1>
+        </div>
+        <p class="subtitle">
+          왼쪽 xterm 터미널에서 실제 엔진 세션으로 SQL을 실행하고, 같은 결과를 파싱 트리와 서비스
+          패널에 함께 반영합니다.
+        </p>
+      </section>
+
+      <section class="grid">
+        <section class="panel terminal-panel">
+          <header class="panel-header">
+            <div>
+              <p class="panel-eyebrow">PANEL 1</p>
+              <h2>Real Engine Terminal</h2>
+              <p class="panel-copy">
+                브라우저는 성공을 흉내 내지 않고, 웹소켓 뒤의 실제 엔진 프로세스 출력만 그대로
+                보여줍니다.
+              </p>
+            </div>
+            <span class="status-chip" id="terminal-status">연결 중...</span>
+          </header>
+
+          <div class="examples-card">
+            <div class="examples-header">
+              <strong>빠른 실행 예제</strong>
+              <span>버튼을 누르면 실제 터미널 입력으로 전달됩니다.</span>
+            </div>
+            <div class="examples-row" id="examples-row"></div>
+          </div>
+
+          <div class="terminal-shell">
+            <div id="terminal"></div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <header class="panel-header">
+            <div>
+              <p class="panel-eyebrow">PANEL 2</p>
+              <h2>Parse Tree</h2>
+              <p class="panel-copy">실행한 SQL 구조를 시각적으로 확인합니다.</p>
+            </div>
+          </header>
+          <div class="panel-body">
+            <div id="parse-tree-empty" class="empty-state">
+              아직 파싱된 쿼리가 없습니다. 왼쪽 터미널에서 SQL을 실행해보세요.
+            </div>
+            <div id="parse-tree-root" class="tree-root hidden"></div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <header class="panel-header">
+            <div>
+              <p class="panel-eyebrow">PANEL 3</p>
+              <h2>Service View</h2>
+              <p class="panel-copy">엔진이 반환한 메시지와 행 데이터를 그대로 보여줍니다.</p>
+            </div>
+          </header>
+          <div class="panel-body">
+            <div class="service-meta">
+              <span id="query-type" class="meta-chip">대기 중</span>
+              <span id="service-message" class="service-message">
+                왼쪽 터미널에서 SQL을 실행하면 결과가 여기에 반영됩니다.
+              </span>
+            </div>
+            <div id="service-error" class="service-error hidden"></div>
+            <div id="service-empty" class="empty-state">
+              아직 표시할 결과가 없습니다. INSERT 또는 SELECT를 실행해보세요.
+            </div>
+            <div id="service-table-wrap" class="table-wrap hidden">
+              <table class="service-table">
+                <thead id="service-head"></thead>
+                <tbody id="service-body"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <script src="/vendor/xterm/lib/xterm.js"></script>
+    <script src="/vendor/xterm-fit/lib/addon-fit.js"></script>
+    <script src="/app.js"></script>
+  </body>
+</html>

@@ -49,24 +49,33 @@ static void print_select_result(const Statement *statement, const ExecutionOutpu
 
 static void run_query(const char *query) {
     Statement statement;
-    ExecutionOutput output;
+    ExecutionOutput *output;
     char error[MAX_ERROR_LEN];
 
-    if (!parse_sql(query, &statement, error, (int)sizeof(error))) {
-        printf("Error: %s\n", error);
+    output = (ExecutionOutput *)malloc(sizeof(ExecutionOutput));
+    if (output == NULL) {
+        printf("Error: out of memory\n");
         return;
     }
 
-    if (!execute_statement(&statement, &output)) {
-        printf("Error: %s\n", output.message);
+    if (!parse_sql(query, &statement, error, (int)sizeof(error))) {
+        printf("Error: %s\n", error);
+        free(output);
+        return;
+    }
+
+    if (!execute_statement(&statement, output)) {
+        printf("Error: %s\n", output->message);
+        free(output);
         return;
     }
 
     if (statement.type == STMT_SELECT) {
-        print_select_result(&statement, &output);
+        print_select_result(&statement, output);
     }
 
-    printf("%s\n", output.message);
+    printf("%s\n", output->message);
+    free(output);
 }
 
 static void run_repl(void) {
@@ -118,6 +127,9 @@ static void run_file(const char *path) {
 }
 
 int main(int argc, char *argv[]) {
+    setvbuf(stdout, NULL, _IONBF, 0);
+    setvbuf(stderr, NULL, _IONBF, 0);
+
     if (argc >= 2) {
         run_file(argv[1]);
         return 0;

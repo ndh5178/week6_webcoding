@@ -1,14 +1,25 @@
 const express = require("express");
 const cors = require("cors");
+const http = require("http");
+const path = require("path");
 
 const { executeQuery, getEngineStatus } = require("./bridge/engineBridge");
 const { buildResponsePayload } = require("./protocol/responseProtocol");
+const { attachTerminalServer } = require("./websocket/terminalServer");
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+const server = http.createServer(app);
+const PROJECT_ROOT = path.resolve(__dirname, "../..");
+const PUBLIC_DIR = path.join(PROJECT_ROOT, "backend", "public");
+const XTERM_DIR = path.join(PROJECT_ROOT, "frontend", "node_modules", "@xterm", "xterm");
+const XTERM_FIT_DIR = path.join(PROJECT_ROOT, "frontend", "node_modules", "@xterm", "addon-fit");
 
 app.use(cors());
 app.use(express.json());
+app.use("/vendor/xterm", express.static(XTERM_DIR));
+app.use("/vendor/xterm-fit", express.static(XTERM_FIT_DIR));
+app.use(express.static(PUBLIC_DIR));
 
 app.get("/api/health", (_req, res) => {
   res.json({
@@ -45,7 +56,9 @@ app.post("/api/query", async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
+attachTerminalServer(server);
+
+server.listen(PORT, () => {
   const status = getEngineStatus();
   console.log(`[backend] listening on http://localhost:${PORT}`);
   console.log(`[backend] engine path: ${status.path}`);

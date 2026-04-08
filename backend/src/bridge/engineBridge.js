@@ -10,6 +10,7 @@ const ENGINE_PATH = path.join(PROJECT_ROOT, "engine", "build", ENGINE_FILENAME);
 function getEngineStatus() {
   return {
     path: ENGINE_PATH,
+    cwd: PROJECT_ROOT,
     exists: fs.existsSync(ENGINE_PATH)
   };
 }

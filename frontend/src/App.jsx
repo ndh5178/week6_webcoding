@@ -1,71 +1,60 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
-import CliPanel from "./components/CliPanel";
 import ParseTreePanel from "./components/ParseTreePanel";
 import ServicePanel from "./components/ServicePanel";
+import Terminal from "./components/Terminal";
 
-const DEFAULT_QUERY = "SELECT * FROM comments;";
 const DEFAULT_MESSAGE =
-  "왼쪽 CLI에서 SQL을 실행하면 파싱 트리와 서비스 패널이 함께 갱신됩니다.";
+  "왼쪽 실제 터미널에서 SQL을 실행하면 파싱 트리와 서비스 패널이 함께 갱신됩니다.";
 
 export default function App() {
-  const [query, setQuery] = useState(DEFAULT_QUERY);
   const [parseTree, setParseTree] = useState(null);
   const [rows, setRows] = useState([]);
   const [queryType, setQueryType] = useState("");
   const [message, setMessage] = useState(DEFAULT_MESSAGE);
-  const [loading, setLoading] = useState(false);
+  const [terminalStatus, setTerminalStatus] = useState("연결 중...");
   const [error, setError] = useState("");
 
-  async function handleRun(nextQuery) {
-    const trimmedQuery = String(nextQuery ?? "").trim();
+  const examples = useMemo(
+    () => [
+      "INSERT INTO comments VALUES (1, 'kim', 'hello');",
+      "SELECT * FROM comments;",
+      "SELECT author, content FROM comments WHERE author = 'kim';",
+      ".exit",
+    ],
+    [],
+  );
 
-    setQuery(trimmedQuery);
-
-    if (!trimmedQuery) {
-      setError("실행할 SQL을 입력해주세요.");
-      setMessage("빈 쿼리는 실행할 수 없습니다.");
-      setParseTree(null);
-      setRows([]);
-      setQueryType("");
+  function handleTerminalPayload(payload) {
+    if (!payload) {
       return;
     }
 
-    setLoading(true);
-    setError("");
-
-    try {
-      const response = await fetch("/api/query", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ query: trimmedQuery }),
-      });
-
-      const payload = await response.json();
-
-      if (!response.ok || payload.success === false) {
-        setParseTree(payload.parseTree ?? null);
-        setRows(payload.rows ?? []);
-        setQueryType(payload.queryType ?? "");
-        setMessage(payload.message ?? "쿼리 실행에 실패했습니다.");
-        setError(payload.message ?? "쿼리 실행에 실패했습니다.");
-        return;
+    if (payload.kind === "status") {
+      setTerminalStatus(payload.message || "연결됨");
+      if (payload.message === "연결됨") {
+        setError("");
+      } else if (payload.error) {
+        setError(payload.error);
       }
+      return;
+    }
 
+    if (payload.kind === "clear") {
+      setParseTree(null);
+      setRows([]);
+      setQueryType("");
+      setMessage(DEFAULT_MESSAGE);
+      setError("");
+      return;
+    }
+
+    if (payload.kind === "result") {
       setParseTree(payload.parseTree ?? null);
       setRows(payload.rows ?? []);
       setQueryType(payload.queryType ?? "");
       setMessage(payload.message ?? "Executed.");
-    } catch (fetchError) {
-      setParseTree(null);
-      setRows([]);
-      setQueryType("");
-      setMessage("백엔드 연결에 실패했습니다.");
-      setError(fetchError.message || "백엔드 연결에 실패했습니다.");
-    } finally {
-      setLoading(false);
+      setError(payload.success === false ? payload.message ?? "쿼리 실행에 실패했습니다." : "");
     }
   }
 
@@ -77,19 +66,23 @@ export default function App() {
           <h1 style={styles.title}>Cupid SQL Integration Page</h1>
         </div>
         <p style={styles.subtitle}>
-          `semin` 브랜치의 CLI 입력 화면과 `gyugo` 브랜치의 Parse Tree
-          시각화를 현재 통합 페이지에 연결했습니다.
+          웹 입력창 흉내 대신 실제 엔진 세션에 연결된 터미널을 붙여, 왼쪽 패널에서 실행한 SQL이
+          그대로 엔진으로 전달되도록 바꿉니다.
         </p>
       </section>
 
       <section style={styles.grid}>
-        <CliPanel initialQuery={query} isRunning={loading} onRun={handleRun} />
+        <Terminal
+          examples={examples}
+          status={terminalStatus}
+          onPayload={handleTerminalPayload}
+        />
         <ParseTreePanel parseTree={parseTree} />
         <ServicePanel
           rows={rows}
           queryType={queryType}
           message={message}
-          loading={loading}
+          loading={terminalStatus === "쿼리 실행 중..."}
           error={error}
         />
       </section>

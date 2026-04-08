@@ -1,237 +1,289 @@
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef } from "react";
+import { Terminal as XTerm } from "@xterm/xterm";
+import { FitAddon } from "@xterm/addon-fit";
+import "@xterm/xterm/css/xterm.css";
 
-/**
- * === SQL 터미널 컴포넌트 (세민 담당) ===
- *
- * xterm.js를 사용한 웹 터미널
- * WebSocket으로 백엔드와 실시간 통신
- *
- * [개발 TIP]
- * - npm install 후 xterm.js를 사용하면 진짜 터미널처럼 됩니다
- * - 지금은 xterm.js 없이도 동작하는 간이 터미널을 먼저 만들어둡니다
- * - 나중에 xterm.js로 교체하면 됩니다
- */
-export default function Terminal({ onParseTree, onMatchResult }) {
-  const [history, setHistory] = useState([]);
-  const [input, setInput] = useState('');
-  const [commandHistory, setCommandHistory] = useState([]);
-  const [historyIndex, setHistoryIndex] = useState(-1);
-  const termRef = useRef(null);
-  const inputRef = useRef(null);
-  const wsRef = useRef(null);
+const DEFAULT_EXAMPLES = [
+  "INSERT INTO comments VALUES (1, 'kim', 'hello');",
+  "SELECT * FROM comments;",
+  "SELECT author, content FROM comments WHERE author = 'kim';",
+  ".exit",
+];
 
-  // WebSocket 연결
+export default function Terminal({
+  onPayload,
+  status = "연결 중...",
+  examples = DEFAULT_EXAMPLES,
+}) {
+  const shellRef = useRef(null);
+  const xtermRef = useRef(null);
+  const socketRef = useRef(null);
+
+  const normalizedExamples = useMemo(
+    () => (Array.isArray(examples) && examples.length > 0 ? examples : DEFAULT_EXAMPLES),
+    [examples],
+  );
+
   useEffect(() => {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.hostname}:3001`;
+    let isDisposed = false;
+    let didOpen = false;
+    const terminal = new XTerm({
+      cursorBlink: true,
+      convertEol: true,
+      fontFamily: "Consolas, 'JetBrains Mono', monospace",
+      fontSize: 14,
+      theme: {
+        background: "#07101d",
+        foreground: "#e5eefc",
+        cursor: "#f472b6",
+        selectionBackground: "rgba(125, 211, 252, 0.26)",
+      },
+    });
+    const fitAddon = new FitAddon();
 
-    try {
-      const ws = new WebSocket(wsUrl);
-      wsRef.current = ws;
+    terminal.loadAddon(fitAddon);
+    terminal.open(shellRef.current);
+    fitAddon.fit();
+    terminal.focus();
 
-      ws.onopen = () => {
-        console.log('[Terminal] WebSocket 연결됨');
-      };
+    xtermRef.current = terminal;
 
-      ws.onmessage = (event) => {
-        const msg = JSON.parse(event.data);
-        if (msg.type === 'output') {
-          // \r\n을 줄바꿈으로 변환
-          const lines = msg.data.replace(/\r\n/g, '\n').split('\n').filter(Boolean);
-          setHistory(prev => [...prev, ...lines.map(line => ({ type: 'output', text: line }))]);
-        } else if (msg.type === 'parseTree') {
-          onParseTree?.(msg.data);
-        } else if (msg.type === 'matchResult') {
-          onMatchResult?.(msg.data);
-        } else if (msg.type === 'clear') {
-          setHistory([]);
-        }
-      };
+    const protocol = window.location.protocol === "https:" ? "wss" : "ws";
+    const socket = new WebSocket(`${protocol}://${window.location.hostname}:3001/ws/terminal`);
+    socketRef.current = socket;
 
-      ws.onerror = () => {
-        console.log('[Terminal] WebSocket 연결 실패 → 로컬 모드');
-        setHistory([{
-          type: 'system',
-          text: '╔══════════════════════════════════════╗'
-        }, {
-          type: 'system',
-          text: '║   Cupid SQL Engine v1.0              ║'
-        }, {
-          type: 'system',
-          text: '║   데이트 매칭 SQL 시스템 (로컬 모드)   ║'
-        }, {
-          type: 'system',
-          text: '╚══════════════════════════════════════╝'
-        }, {
-          type: 'info',
-          text: '백엔드 서버 연결 대기 중... (node server.js 실행 필요)'
-        }, {
-          type: 'info',
-          text: '"help"를 입력하면 사용법을 볼 수 있습니다.'
-        }]);
-      };
+    socket.addEventListener("open", () => {
+      didOpen = true;
+      onPayload?.({
+        kind: "status",
+        message: "연결됨",
+      });
+      fitAddon.fit();
+      socket.send(
+        JSON.stringify({
+          type: "resize",
+          cols: terminal.cols,
+          rows: terminal.rows,
+        }),
+      );
+    });
 
-      ws.onclose = () => {
-        console.log('[Terminal] WebSocket 종료');
-      };
+    socket.addEventListener("message", (event) => {
+      const message = JSON.parse(event.data);
 
-      return () => ws.close();
-    } catch {
-      // WebSocket 미지원 환경
-      setHistory([{ type: 'system', text: 'Cupid SQL Engine v1.0 (오프라인 모드)' }]);
-    }
-  }, [onParseTree, onMatchResult]);
+      if (message.type === "output") {
+        terminal.write(message.data);
+        return;
+      }
 
-  // 자동 스크롤
-  useEffect(() => {
-    if (termRef.current) {
-      termRef.current.scrollTop = termRef.current.scrollHeight;
-    }
-  }, [history]);
+      if (message.type === "result" || message.type === "status" || message.type === "clear") {
+        onPayload?.(message);
+      }
+    });
 
-  // 로컬 Mock 처리 (서버 없을 때)
-  function handleLocalCommand(query) {
-    const q = query.trim().toUpperCase();
-    const lines = [];
+    socket.addEventListener("close", () => {
+      if (isDisposed) {
+        return;
+      }
 
-    if (query.trim().toLowerCase() === 'help') {
-      lines.push({ type: 'info', text: '사용 가능한 명령어:' });
-      lines.push({ type: 'info', text: '  INSERT INTO people VALUES (이름, MBTI, 취미);' });
-      lines.push({ type: 'info', text: '  SELECT * FROM people [WHERE 조건];' });
-      lines.push({ type: 'info', text: '  MATCH 이름 WITH mbti, hobby;' });
-      lines.push({ type: 'info', text: '  help  - 도움말  |  clear - 화면 지우기' });
-    } else if (query.trim().toLowerCase() === 'clear') {
-      setHistory([]);
+       if (!didOpen) {
+        onPayload?.({
+          kind: "status",
+          message: "연결 실패",
+          error: "백엔드 터미널 소켓 연결에 실패했습니다.",
+        });
+        return;
+      }
+
+      onPayload?.({
+        kind: "status",
+        message: "연결 종료",
+        error: "터미널 연결이 종료되었습니다.",
+      });
+    });
+
+    socket.addEventListener("error", () => {
+      onPayload?.({
+        kind: "status",
+        message: "연결 실패",
+        error: "백엔드 터미널 소켓 연결에 실패했습니다.",
+      });
+    });
+
+    terminal.onData((data) => {
+      if (!socket || socket.readyState !== WebSocket.OPEN) {
+        return;
+      }
+      socket.send(JSON.stringify({ type: "input", data }));
+    });
+
+    const handleResize = () => {
+      fitAddon.fit();
+      if (socket.readyState !== WebSocket.OPEN) {
+        return;
+      }
+      socket.send(
+        JSON.stringify({
+          type: "resize",
+          cols: terminal.cols,
+          rows: terminal.rows,
+        }),
+      );
+    };
+
+    handleResize();
+    window.addEventListener("resize", handleResize);
+
+    return () => {
+      isDisposed = true;
+      window.removeEventListener("resize", handleResize);
+      socket.close();
+      terminal.dispose();
+    };
+  }, [onPayload]);
+
+  function sendExample(query) {
+    const terminal = xtermRef.current;
+    const socket = socketRef.current;
+
+    if (!terminal || !socket || socket.readyState !== WebSocket.OPEN) {
       return;
-    } else if (q.startsWith('INSERT')) {
-      lines.push({ type: 'success', text: '[INSERT] 데이터 삽입 완료' });
-      // Mock 파싱 트리
-      onParseTree?.({
-        type: 'INSERT',
-        children: [
-          { type: 'INTO', value: 'people' },
-          { type: 'VALUES', children: [
-            { type: 'STRING', value: '...' }
-          ]}
-        ]
-      });
-    } else if (q.startsWith('SELECT')) {
-      lines.push({ type: 'success', text: '[SELECT] 조회 결과:' });
-      lines.push({ type: 'output', text: '┌──────────┬──────┬──────┐' });
-      lines.push({ type: 'output', text: '│ 김민수   │ INFP │ 독서 │' });
-      lines.push({ type: 'output', text: '│ 이서연   │ ENFJ │ 요리 │' });
-      lines.push({ type: 'output', text: '└──────────┴──────┴──────┘' });
-      onParseTree?.({
-        type: 'SELECT',
-        children: [
-          { type: 'COLUMNS', value: '*' },
-          { type: 'FROM', value: 'people' }
-        ]
-      });
-    } else if (q.startsWith('MATCH')) {
-      lines.push({ type: 'success', text: '[MATCH] 매칭 결과 발견!' });
-      lines.push({ type: 'output', text: '  박지훈 (INFP, 게임) - 매칭률: 85%' });
-      lines.push({ type: 'output', text: '  이서연 (ENFJ, 독서) - 매칭률: 70%' });
-    } else {
-      lines.push({ type: 'error', text: `[오류] 알 수 없는 쿼리: ${query}` });
     }
 
-    setHistory(prev => [...prev, ...lines]);
+    socket.send(JSON.stringify({ type: "input", data: `${query}\r` }));
+    terminal.focus();
   }
-
-  function handleSubmit(e) {
-    e.preventDefault();
-    if (!input.trim()) return;
-
-    // 입력 히스토리 추가
-    setHistory(prev => [...prev, { type: 'command', text: `cupid> ${input}` }]);
-    setCommandHistory(prev => [input, ...prev]);
-    setHistoryIndex(-1);
-
-    // WebSocket으로 전송 또는 로컬 처리
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ type: 'command', data: input }));
-    } else {
-      handleLocalCommand(input);
-    }
-
-    setInput('');
-  }
-
-  function handleKeyDown(e) {
-    if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      if (historyIndex < commandHistory.length - 1) {
-        const newIndex = historyIndex + 1;
-        setHistoryIndex(newIndex);
-        setInput(commandHistory[newIndex]);
-      }
-    } else if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      if (historyIndex > 0) {
-        const newIndex = historyIndex - 1;
-        setHistoryIndex(newIndex);
-        setInput(commandHistory[newIndex]);
-      } else {
-        setHistoryIndex(-1);
-        setInput('');
-      }
-    }
-  }
-
-  const lineStyles = {
-    command: { color: '#ff6b9d', fontWeight: 'bold' },
-    output: { color: '#e6edf3' },
-    success: { color: '#3fb950' },
-    error: { color: '#f85149' },
-    info: { color: '#58a6ff' },
-    system: { color: '#d29922' }
-  };
 
   return (
-    <div className="terminal-container" onClick={() => inputRef.current?.focus()}>
-      <div
-        ref={termRef}
-        style={{
-          height: 'calc(100% - 40px)',
-          overflow: 'auto',
-          padding: '12px',
-          fontFamily: "'JetBrains Mono', monospace",
-          fontSize: '13px',
-          lineHeight: '1.6'
-        }}
-      >
-        {history.map((line, i) => (
-          <div key={i} style={lineStyles[line.type] || lineStyles.output}>
-            {line.text}
-          </div>
-        ))}
+    <section style={styles.panel}>
+      <header style={styles.header}>
+        <div>
+          <p style={styles.eyebrow}>PANEL 1</p>
+          <h2 style={styles.title}>Real Engine Terminal</h2>
+          <p style={styles.subtitle}>
+            xterm.js로 실제 엔진 프로세스 세션에 연결된 터미널입니다. 브라우저는 성공을
+            흉내 내지 않고, 엔진 출력만 그대로 보여줍니다.
+          </p>
+        </div>
+        <span style={styles.statusChip(status)}>{status}</span>
+      </header>
+
+      <div style={styles.examplesCard}>
+        <div style={styles.examplesHeader}>
+          <strong>빠른 실행 예제</strong>
+          <span>예제는 그대로 실제 터미널에 입력됩니다.</span>
+        </div>
+        <div style={styles.examplesRow}>
+          {normalizedExamples.map((example) => (
+            <button
+              key={example}
+              type="button"
+              style={styles.exampleButton}
+              onClick={() => sendExample(example)}
+            >
+              {example}
+            </button>
+          ))}
+        </div>
       </div>
 
-      <form onSubmit={handleSubmit} style={{ display: 'flex', gap: '8px', padding: '0 12px' }}>
-        <span style={{ color: '#ff6b9d', fontFamily: "'JetBrains Mono', monospace", lineHeight: '36px' }}>
-          cupid&gt;
-        </span>
-        <input
-          ref={inputRef}
-          value={input}
-          onChange={e => setInput(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder="SQL 쿼리를 입력하세요..."
-          autoFocus
-          style={{
-            flex: 1,
-            background: 'var(--bg-input)',
-            border: '1px solid var(--border)',
-            borderRadius: '6px',
-            padding: '8px 12px',
-            color: 'var(--text)',
-            fontFamily: "'JetBrains Mono', monospace",
-            fontSize: '13px',
-            outline: 'none'
-          }}
-        />
-      </form>
-    </div>
+      <div
+        style={styles.terminalShell}
+        onClick={() => xtermRef.current?.focus()}
+      >
+        <div ref={shellRef} style={styles.terminalViewport} />
+      </div>
+    </section>
   );
 }
+
+const styles = {
+  panel: {
+    minHeight: "720px",
+    display: "flex",
+    flexDirection: "column",
+    gap: "16px",
+    padding: "20px",
+    borderRadius: "24px",
+    background: "rgba(15, 23, 42, 0.92)",
+    border: "1px solid rgba(148, 163, 184, 0.16)",
+    boxShadow: "0 18px 40px rgba(0, 0, 0, 0.25)",
+  },
+  header: {
+    display: "flex",
+    justifyContent: "space-between",
+    gap: "12px",
+    alignItems: "flex-start",
+  },
+  eyebrow: {
+    margin: 0,
+    fontSize: "11px",
+    letterSpacing: "0.16em",
+    fontWeight: 700,
+    color: "#7dd3fc",
+  },
+  title: {
+    margin: "8px 0 0",
+    fontSize: "34px",
+    fontWeight: 800,
+  },
+  subtitle: {
+    margin: "10px 0 0",
+    color: "#cbd5e1",
+    lineHeight: 1.6,
+    maxWidth: "540px",
+  },
+  statusChip: (status) => ({
+    padding: "8px 12px",
+    borderRadius: "999px",
+    background: status.includes("실행") ? "rgba(56, 189, 248, 0.18)" : "rgba(34, 197, 94, 0.18)",
+    color: status.includes("실행") ? "#bae6fd" : "#bbf7d0",
+    fontSize: "12px",
+    fontWeight: 700,
+    whiteSpace: "nowrap",
+  }),
+  examplesCard: {
+    borderRadius: "18px",
+    padding: "16px",
+    background: "rgba(15, 23, 42, 0.66)",
+    border: "1px solid rgba(148, 163, 184, 0.14)",
+    display: "grid",
+    gap: "12px",
+  },
+  examplesHeader: {
+    display: "flex",
+    justifyContent: "space-between",
+    gap: "12px",
+    color: "#cbd5e1",
+    fontSize: "12px",
+    flexWrap: "wrap",
+  },
+  examplesRow: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: "10px",
+  },
+  exampleButton: {
+    border: "1px solid rgba(125, 211, 252, 0.2)",
+    background: "rgba(8, 47, 73, 0.5)",
+    color: "#dbeafe",
+    borderRadius: "999px",
+    padding: "8px 12px",
+    cursor: "pointer",
+    fontSize: "12px",
+    fontFamily: "Consolas, 'JetBrains Mono', monospace",
+  },
+  terminalShell: {
+    flex: 1,
+    borderRadius: "20px",
+    border: "1px solid rgba(125, 211, 252, 0.14)",
+    background: "#07101d",
+    padding: "14px",
+    overflow: "hidden",
+    minHeight: "480px",
+  },
+  terminalViewport: {
+    width: "100%",
+    height: "100%",
+  },
+};
