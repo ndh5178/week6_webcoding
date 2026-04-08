@@ -1,12 +1,15 @@
 import { useState } from "react";
+
 import CliPanel from "./components/CliPanel";
 import ParseTreePanel from "./components/ParseTreePanel";
 import ServicePanel from "./components/ServicePanel";
 
-const DEFAULT_MESSAGE = "왼쪽 CLI에서 SQL을 실행하면 파싱 트리와 서비스 패널이 함께 갱신됩니다.";
+const DEFAULT_QUERY = "SELECT * FROM comments;";
+const DEFAULT_MESSAGE =
+  "왼쪽 CLI에서 SQL을 실행하면 파싱 트리와 서비스 패널이 함께 갱신됩니다.";
 
 export default function App() {
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(DEFAULT_QUERY);
   const [parseTree, setParseTree] = useState(null);
   const [rows, setRows] = useState([]);
   const [queryType, setQueryType] = useState("");
@@ -15,17 +18,21 @@ export default function App() {
   const [error, setError] = useState("");
 
   async function handleRun(nextQuery) {
-    const trimmedQuery = nextQuery.trim();
+    const trimmedQuery = String(nextQuery ?? "").trim();
+
+    setQuery(trimmedQuery);
 
     if (!trimmedQuery) {
-      setError("Query is empty.");
+      setError("실행할 SQL을 입력해주세요.");
+      setMessage("빈 쿼리는 실행할 수 없습니다.");
+      setParseTree(null);
+      setRows([]);
+      setQueryType("");
       return;
     }
 
-    setQuery(trimmedQuery);
     setLoading(true);
     setError("");
-    setQueryType("");
 
     try {
       const response = await fetch("/api/query", {
@@ -36,24 +43,27 @@ export default function App() {
         body: JSON.stringify({ query: trimmedQuery }),
       });
 
-      const result = await response.json();
+      const payload = await response.json();
 
-      if (!response.ok || !result.success) {
-        setError(result.message || "Query execution failed.");
-        setMessage(result.message || "Query execution failed.");
-        setParseTree(result.parseTree || null);
-        setRows(result.rows || []);
-        setQueryType(result.queryType || "");
+      if (!response.ok || payload.success === false) {
+        setParseTree(payload.parseTree ?? null);
+        setRows(payload.rows ?? []);
+        setQueryType(payload.queryType ?? "");
+        setMessage(payload.message ?? "쿼리 실행에 실패했습니다.");
+        setError(payload.message ?? "쿼리 실행에 실패했습니다.");
         return;
       }
 
-      setParseTree(result.parseTree || null);
-      setRows(result.rows || []);
-      setMessage(result.message || "Executed.");
-      setQueryType(result.queryType || "");
-    } catch (_fetchError) {
-      setError("Backend connection failed.");
-      setMessage("Backend connection failed.");
+      setParseTree(payload.parseTree ?? null);
+      setRows(payload.rows ?? []);
+      setQueryType(payload.queryType ?? "");
+      setMessage(payload.message ?? "Executed.");
+    } catch (fetchError) {
+      setParseTree(null);
+      setRows([]);
+      setQueryType("");
+      setMessage("백엔드 연결에 실패했습니다.");
+      setError(fetchError.message || "백엔드 연결에 실패했습니다.");
     } finally {
       setLoading(false);
     }
@@ -61,40 +71,27 @@ export default function App() {
 
   return (
     <main style={styles.page}>
-      <header style={styles.header}>
+      <section style={styles.hero}>
         <div>
-          <p style={styles.eyebrow}>Three-Panel SQL Demo</p>
+          <p style={styles.eyebrow}>THREE-PANEL SQL DEMO</p>
           <h1 style={styles.title}>Cupid SQL Integration Page</h1>
         </div>
         <p style={styles.subtitle}>
-          CLI 입력, 파싱 구조 시각화, 서비스 화면이 한 번의 SQL 실행 흐름으로 함께 움직입니다.
+          `semin` 브랜치의 CLI 입력 화면과 `gyugo` 브랜치의 Parse Tree
+          시각화를 현재 통합 페이지에 연결했습니다.
         </p>
-      </header>
+      </section>
 
       <section style={styles.grid}>
-        <div style={styles.panel}>
-          <CliPanel
-            initialQuery={query}
-            loading={loading}
-            onRun={handleRun}
-            message={message}
-            error={error}
-          />
-        </div>
-
-        <div style={styles.panel}>
-          <ParseTreePanel tree={parseTree} />
-        </div>
-
-        <div style={styles.panel}>
-          <ServicePanel
-            rows={rows}
-            queryType={queryType}
-            message={message}
-            loading={loading}
-            error={error}
-          />
-        </div>
+        <CliPanel initialQuery={query} isRunning={loading} onRun={handleRun} />
+        <ParseTreePanel parseTree={parseTree} />
+        <ServicePanel
+          rows={rows}
+          queryType={queryType}
+          message={message}
+          loading={loading}
+          error={error}
+        />
       </section>
     </main>
   );
@@ -104,46 +101,43 @@ const styles = {
   page: {
     minHeight: "100vh",
     padding: "24px",
-    background: "#0b1020",
-    color: "#f3f4f6",
-    fontFamily: "system-ui, sans-serif",
+    background:
+      "radial-gradient(circle at top left, rgba(58, 123, 213, 0.18), transparent 28%), #0a1020",
+    color: "#f8fafc",
+    fontFamily:
+      '"Pretendard Variable", "Pretendard", "Noto Sans KR", system-ui, sans-serif',
   },
-  header: {
+  hero: {
     display: "flex",
     justifyContent: "space-between",
     gap: "24px",
-    alignItems: "flex-end",
-    marginBottom: "24px",
-    flexWrap: "wrap",
+    alignItems: "flex-start",
+    marginBottom: "20px",
   },
   eyebrow: {
     margin: 0,
+    color: "#38bdf8",
     fontSize: "12px",
-    letterSpacing: "0.12em",
-    textTransform: "uppercase",
-    color: "#7dd3fc",
+    letterSpacing: "0.18em",
+    fontWeight: 700,
   },
   title: {
-    margin: "6px 0 0",
-    fontSize: "32px",
-    lineHeight: 1.1,
+    margin: "8px 0 0",
+    fontSize: "46px",
+    lineHeight: 1.08,
+    fontWeight: 800,
   },
   subtitle: {
-    maxWidth: "680px",
     margin: 0,
+    maxWidth: "520px",
     color: "#cbd5e1",
+    lineHeight: 1.6,
+    fontSize: "15px",
   },
   grid: {
     display: "grid",
-    gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+    gridTemplateColumns: "1fr 1fr 1fr",
     gap: "16px",
-  },
-  panel: {
-    minHeight: "560px",
-    background: "#111827",
-    border: "1px solid #1f2937",
-    borderRadius: "16px",
-    overflow: "hidden",
-    boxShadow: "0 20px 40px rgba(0, 0, 0, 0.25)",
+    alignItems: "stretch",
   },
 };

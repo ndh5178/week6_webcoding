@@ -287,11 +287,7 @@ function createDescriptor(value, relationLabel, sequence) {
       entryValue.forEach((childValue, index) => {
         children.push({
           edgeLabel: formatLabel(key),
-          node: createDescriptor(
-            childValue,
-            `${formatLabel(key)} ${index + 1}`,
-            sequence,
-          ),
+          node: createDescriptor(childValue, `${formatLabel(key)} ${index + 1}`, sequence),
         });
       });
       return;
@@ -327,10 +323,7 @@ function countLeaves(descriptor) {
     return 1;
   }
 
-  return descriptor.children.reduce(
-    (total, child) => total + countLeaves(child.node),
-    0,
-  );
+  return descriptor.children.reduce((total, child) => total + countLeaves(child.node), 0);
 }
 
 function layoutDescriptor(descriptor, depth, leafCursor, nodes, edges) {
@@ -339,13 +332,7 @@ function layoutDescriptor(descriptor, depth, leafCursor, nodes, edges) {
 
   descriptor.children.forEach((child) => {
     const childLeafCount = countLeaves(child.node);
-    const childCenterY = layoutDescriptor(
-      child.node,
-      depth + 1,
-      nextLeafCursor,
-      nodes,
-      edges,
-    );
+    const childCenterY = layoutDescriptor(child.node, depth + 1, nextLeafCursor, nodes, edges);
 
     childPlacements.push({ child, centerY: childCenterY });
     nextLeafCursor += childLeafCount;
@@ -446,11 +433,7 @@ function ParseNodeCard({ data }) {
         </p>
       </div>
 
-      <Handle
-        type="source"
-        position={Position.Right}
-        style={styles.handleRight}
-      />
+      <Handle type="source" position={Position.Right} style={styles.handleRight} />
     </div>
   );
 }
@@ -470,8 +453,7 @@ function EmptyState() {
       <h3 style={styles.emptyTitle}>No parse tree yet</h3>
       <p style={styles.emptyText}>
         Run a SQL query from the CLI panel and show the backend response here.
-        This panel should stay read-only and reflect the latest parsed query
-        structure.
+        This panel should stay read-only and reflect the latest parsed query structure.
       </p>
     </div>
   );
@@ -493,8 +475,8 @@ export default function ParseTreePanel({ parseTree }) {
           Parse Tree
         </h2>
         <p style={styles.subtitle}>
-          Show the AST or query structure returned by the backend as a node
-          graph. Keep this panel focused on visualization only.
+          Show the AST or query structure returned by the backend as a node graph.
+          Keep this panel focused on visualization only.
         </p>
       </header>
 
