@@ -17,6 +17,14 @@ export default function App() {
   const [error, setError] = useState("");
   const [connectionState, setConnectionState] = useState("connecting");
 
+  function applyQueryPayload(payload) {
+    setParseTree(payload.parseTree ?? null);
+    setRows(payload.rows ?? []);
+    setQueryType(payload.queryType ?? "");
+    setMessage(payload.message ?? "Executed.");
+    setError(payload.success === false ? payload.message ?? "Query failed." : "");
+  }
+
   function handleQueryStart(nextQuery) {
     setQuery(nextQuery);
     setLoading(true);
@@ -25,11 +33,7 @@ export default function App() {
 
   function handleQueryResult(payload) {
     setLoading(false);
-    setParseTree(payload.parseTree ?? null);
-    setRows(payload.rows ?? []);
-    setQueryType(payload.queryType ?? "");
-    setMessage(payload.message ?? "Executed.");
-    setError(payload.success === false ? payload.message ?? "Query failed." : "");
+    applyQueryPayload(payload);
   }
 
   function handleConnectionChange({ status, message: nextMessage }) {
@@ -46,6 +50,57 @@ export default function App() {
       setError(nextMessage || "Backend terminal connection is not available.");
       if (nextMessage) {
         setMessage(nextMessage);
+      }
+    }
+  }
+
+  async function runApiQuery(
+    nextQuery,
+    { updateSharedState = true, trackLoading = true } = {},
+  ) {
+    const queryText = String(nextQuery ?? "").trim();
+
+    if (!queryText) {
+      throw new Error("Query must be a non-empty string.");
+    }
+
+    if (trackLoading) {
+      setLoading(true);
+    }
+
+    if (updateSharedState) {
+      setQuery(queryText);
+      setError("");
+    }
+
+    try {
+      const response = await fetch(buildApiUrl("/api/query"), {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ query: queryText }),
+      });
+
+      const payload = await response.json();
+
+      if (!response.ok || payload.success === false) {
+        throw new Error(payload.message || "Query failed.");
+      }
+
+      if (updateSharedState) {
+        applyQueryPayload(payload);
+      }
+
+      return payload;
+    } catch (requestError) {
+      if (updateSharedState) {
+        setError(requestError.message || "Backend request failed.");
+      }
+      throw requestError;
+    } finally {
+      if (trackLoading) {
+        setLoading(false);
       }
     }
   }
@@ -74,6 +129,7 @@ export default function App() {
           onConnectionChange={handleConnectionChange}
           onQueryResult={handleQueryResult}
           onQueryStart={handleQueryStart}
+          runQuery={runApiQuery}
         />
         <ParseTreePanel parseTree={parseTree} />
         <DateMatchApp
@@ -81,10 +137,19 @@ export default function App() {
           queryType={queryType}
           loading={loading}
           error={error}
+          runQuery={runApiQuery}
         />
       </section>
     </main>
   );
+}
+
+function buildApiUrl(pathname) {
+  if (import.meta.env.DEV) {
+    return `${window.location.protocol}//${window.location.hostname}:3001${pathname}`;
+  }
+
+  return pathname;
 }
 
 function formatConnectionLabel(connectionState) {

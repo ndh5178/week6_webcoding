@@ -104,19 +104,58 @@ static int parse_csv_line(const char *line, DataRow *row, int expected_count) {
     return index == expected_count;
 }
 
+static int evaluate_where_condition(const TableSchema *schema, const WhereCondition *condition, const DataRow *row) {
+    int index;
+
+    index = schema_column_index(schema, condition->column);
+    if (index < 0) {
+        return 0;
+    }
+
+    return strcmp(row->values[index], condition->value) == 0;
+}
+
 static int row_matches_where(const TableSchema *schema, const Statement *statement, const DataRow *row) {
+    int index;
+    int current_group;
+    int any_group_match;
+
+    if (!statement->where.has_where || statement->where.condition_count == 0) {
+        return 1;
+    }
+
+    current_group = evaluate_where_condition(schema, &statement->where.conditions[0], row);
+    any_group_match = 0;
+
+    for (index = 0; index < statement->where.join_count; index++) {
+        int next_value = evaluate_where_condition(schema, &statement->where.conditions[index + 1], row);
+
+        if (statement->where.joins[index] == WHERE_JOIN_AND) {
+            current_group = current_group && next_value;
+        } else {
+            any_group_match = any_group_match || current_group;
+            current_group = next_value;
+        }
+    }
+
+    return any_group_match || current_group;
+}
+
+static int validate_where_columns(const TableSchema *schema, const Statement *statement, char *error, int error_size) {
     int index;
 
     if (!statement->where.has_where) {
         return 1;
     }
 
-    index = schema_column_index(schema, statement->where.column);
-    if (index < 0) {
-        return 0;
+    for (index = 0; index < statement->where.condition_count; index++) {
+        if (schema_column_index(schema, statement->where.conditions[index].column) < 0) {
+            set_error(error, error_size, "WHERE column not found in schema");
+            return 0;
+        }
     }
 
-    return strcmp(row->values[index], statement->where.value) == 0;
+    return 1;
 }
 
 int storage_insert_row(const TableSchema *schema, const Statement *statement, char *error, int error_size) {
@@ -164,8 +203,7 @@ int storage_select_rows(const TableSchema *schema, const Statement *statement, Q
         return 0;
     }
 
-    if (statement->where.has_where && schema_column_index(schema, statement->where.column) < 0) {
-        set_error(error, error_size, "WHERE column not found in schema");
+    if (!validate_where_columns(schema, statement, error, error_size)) {
         return 0;
     }
 

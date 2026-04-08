@@ -5,6 +5,7 @@
 
 #define MAX_VALUE_LEN 256
 #define MAX_ERROR_LEN 256
+#define MAX_WHERE_CONDITIONS 16
 
 typedef enum {
     STMT_INSERT,
@@ -12,9 +13,21 @@ typedef enum {
 } StatementType;
 
 typedef struct {
-    int has_where;
     char column[MAX_COLUMN_NAME];
     char value[MAX_VALUE_LEN];
+} WhereCondition;
+
+typedef enum {
+    WHERE_JOIN_AND,
+    WHERE_JOIN_OR
+} WhereJoinType;
+
+typedef struct {
+    int has_where;
+    int condition_count;
+    int join_count;
+    WhereCondition conditions[MAX_WHERE_CONDITIONS];
+    WhereJoinType joins[MAX_WHERE_CONDITIONS - 1];
 } WhereClause;
 
 typedef struct {

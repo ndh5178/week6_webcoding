@@ -217,17 +217,7 @@ wss.on("connection", (socket) => {
     }
 
     if (engineReady && shellFallbackArmed && latestPrompt === "shell") {
-      engineReady = false;
-      shellFallbackArmed = false;
-      inputBuffer = "";
-
-      send(socket, {
-        type: "session-status",
-        status: "shell",
-        message:
-          `The SQL engine stopped, but the shell is still open at ${engineStatus.workingDirectory}. ` +
-          `Run ${engineStatus.launchCommand} to start it again.`,
-      });
+      transitionToShellMode();
     }
   }
 
@@ -333,6 +323,7 @@ wss.on("connection", (socket) => {
     }
 
     if (isExitCommand(pendingQuery) && getLatestPrompt(promptBuffer) === "shell") {
+      transitionToShellMode();
       finalizePendingQuery({
         success: true,
         queryType: "UNKNOWN",
@@ -345,6 +336,24 @@ wss.on("connection", (socket) => {
     }
 
     return false;
+  }
+
+  function transitionToShellMode() {
+    if (!engineReady && !shellFallbackArmed) {
+      return;
+    }
+
+    engineReady = false;
+    shellFallbackArmed = false;
+    inputBuffer = "";
+
+    send(socket, {
+      type: "session-status",
+      status: "shell",
+      message:
+        `The SQL engine stopped, but the shell is still open at ${engineStatus.workingDirectory}. ` +
+        `Run ${engineStatus.launchCommand} to start it again.`,
+    });
   }
 
   function finalizePendingQuery(payload) {

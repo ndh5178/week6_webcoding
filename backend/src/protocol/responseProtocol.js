@@ -24,6 +24,230 @@ function inferQueryType(query) {
   return "UNKNOWN";
 }
 
+function skipSpaces(text, startIndex) {
+  let index = startIndex;
+
+  while (index < text.length && /\s/.test(text[index])) {
+    index += 1;
+  }
+
+  return index;
+}
+
+function readIdentifier(text, startIndex) {
+  let index = skipSpaces(text, startIndex);
+
+  if (!/[A-Za-z_]/.test(text[index] ?? "")) {
+    return null;
+  }
+
+  const begin = index;
+  index += 1;
+
+  while (index < text.length && /[A-Za-z0-9_]/.test(text[index])) {
+    index += 1;
+  }
+
+  return {
+    value: text.slice(begin, index),
+    nextIndex: index,
+  };
+}
+
+function readValueToken(text, startIndex) {
+  let index = skipSpaces(text, startIndex);
+
+  if (index >= text.length) {
+    return null;
+  }
+
+  if (text[index] === "'" || text[index] === "\"") {
+    const quote = text[index];
+    const begin = index;
+
+    index += 1;
+
+    while (index < text.length && text[index] !== quote) {
+      index += 1;
+    }
+
+    if (index >= text.length) {
+      return null;
+    }
+
+    index += 1;
+
+    return {
+      value: cleanupValue(text.slice(begin, index)),
+      nextIndex: index,
+    };
+  }
+
+  const begin = index;
+
+  while (index < text.length && !/\s/.test(text[index])) {
+    index += 1;
+  }
+
+  if (begin === index) {
+    return null;
+  }
+
+  return {
+    value: cleanupValue(text.slice(begin, index)),
+    nextIndex: index,
+  };
+}
+
+function readWhereJoin(text, startIndex) {
+  const index = skipSpaces(text, startIndex);
+  const rest = text.slice(index);
+  const match = rest.match(/^(AND|OR)\b/i);
+
+  if (!match) {
+    return null;
+  }
+
+  return {
+    value: match[1].toUpperCase(),
+    nextIndex: index + match[0].length,
+  };
+}
+
+function parseWhereCondition(text, startIndex) {
+  const columnToken = readIdentifier(text, startIndex);
+  if (!columnToken) {
+    return null;
+  }
+
+  let index = skipSpaces(text, columnToken.nextIndex);
+  if (text[index] !== "=") {
+    return null;
+  }
+
+  index += 1;
+
+  const valueToken = readValueToken(text, index);
+  if (!valueToken) {
+    return null;
+  }
+
+  return {
+    condition: {
+      column: columnToken.value,
+      value: valueToken.value,
+    },
+    nextIndex: valueToken.nextIndex,
+  };
+}
+
+function parseWhereExpression(whereClause) {
+  const conditions = [];
+  const joins = [];
+  let index = 0;
+
+  const firstCondition = parseWhereCondition(whereClause, index);
+  if (!firstCondition) {
+    return null;
+  }
+
+  conditions.push(firstCondition.condition);
+  index = firstCondition.nextIndex;
+
+  while (true) {
+    const joinToken = readWhereJoin(whereClause, index);
+    if (!joinToken) {
+      break;
+    }
+
+    joins.push(joinToken.value);
+    index = joinToken.nextIndex;
+
+    const nextCondition = parseWhereCondition(whereClause, index);
+    if (!nextCondition) {
+      return null;
+    }
+
+    conditions.push(nextCondition.condition);
+    index = nextCondition.nextIndex;
+  }
+
+  index = skipSpaces(whereClause, index);
+
+  if (index !== whereClause.length) {
+    return null;
+  }
+
+  return { conditions, joins };
+}
+
+function buildWhereConditionNode(condition) {
+  return {
+    type: "CONDITION",
+    children: [
+      { type: "COLUMN", value: condition.column },
+      { type: "VALUE", value: condition.value },
+    ],
+  };
+}
+
+function buildWhereTree(whereClause) {
+  const expression = parseWhereExpression(whereClause);
+
+  if (!expression || expression.conditions.length === 0) {
+    return {
+      type: "WHERE",
+      value: whereClause,
+    };
+  }
+
+  if (expression.conditions.length === 1) {
+    return {
+      type: "WHERE",
+      children: [
+        { type: "COLUMN", value: expression.conditions[0].column },
+        { type: "VALUE", value: expression.conditions[0].value },
+      ],
+    };
+  }
+
+  let currentNode = buildWhereConditionNode(expression.conditions[0]);
+  const orGroups = [];
+
+  expression.joins.forEach((join, index) => {
+    const nextNode = buildWhereConditionNode(expression.conditions[index + 1]);
+
+    if (join === "AND") {
+      currentNode = {
+        type: "AND",
+        children: [currentNode, nextNode],
+      };
+      return;
+    }
+
+    orGroups.push(currentNode);
+    currentNode = nextNode;
+  });
+
+  orGroups.push(currentNode);
+
+  return {
+    type: "WHERE",
+    children: [
+      orGroups.reduce((accumulator, node) => {
+        if (accumulator === null) {
+          return node;
+        }
+
+        return {
+          type: "OR",
+          children: [accumulator, node],
+        };
+      }, null),
+    ],
+  };
+}
+
 function buildParseTree(query) {
   const type = inferQueryType(query);
   const trimmed = query.trim();
@@ -50,29 +274,22 @@ function buildParseTree(query) {
   }
 
   if (type === "SELECT") {
-    const match = trimmed.match(/^SELECT\s+(.+?)\s+FROM\s+([A-Za-z_][A-Za-z0-9_]*)(?:\s+WHERE\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+?))?\s*;?$/i);
+    const match = trimmed.match(/^SELECT\s+(.+?)\s+FROM\s+([A-Za-z_][A-Za-z0-9_]*)(?:\s+WHERE\s+(.+?))?\s*;?$/i);
     if (!match) {
       return { type: "SELECT", children: [] };
     }
 
     const columns = match[1].trim();
     const table = match[2].trim();
-    const whereColumn = match[3] ? match[3].trim() : "";
-    const whereValue = match[4] ? cleanupValue(match[4].trim()) : "";
+    const whereClause = match[3] ? match[3].trim() : "";
 
     const children = [
       { type: "COLUMNS", value: columns },
       { type: "FROM", value: table }
     ];
 
-    if (whereColumn) {
-      children.push({
-        type: "WHERE",
-        children: [
-          { type: "COLUMN", value: whereColumn },
-          { type: "VALUE", value: whereValue }
-        ]
-      });
+    if (whereClause) {
+      children.push(buildWhereTree(whereClause));
     }
 
     return {

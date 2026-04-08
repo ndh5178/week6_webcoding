@@ -3,6 +3,8 @@ import { Terminal } from "xterm";
 import { FitAddon } from "xterm-addon-fit";
 import "xterm/css/xterm.css";
 
+const PROMPT = "db > ";
+
 const DEFAULT_EXAMPLES = [
   {
     label: "INSERT profile",
@@ -24,6 +26,7 @@ export default function CliPanel({
   onConnectionChange,
   onQueryResult,
   onQueryStart,
+  runQuery,
 }) {
   const mountRef = useRef(null);
   const terminalRef = useRef(null);
@@ -31,9 +34,16 @@ export default function CliPanel({
   const resizeObserverRef = useRef(null);
   const socketRef = useRef(null);
   const lastViewportRef = useRef({ width: 0, height: 0, cols: 0, rows: 0 });
+  const inputBufferRef = useRef("");
+  const cursorIndexRef = useRef(0);
+  const historyEntriesRef = useRef([]);
+  const historyIndexRef = useRef(null);
+  const historyDraftRef = useRef("");
+  const connectionStateRef = useRef(connectionState);
   const onConnectionChangeRef = useRef(onConnectionChange);
   const onQueryResultRef = useRef(onQueryResult);
   const onQueryStartRef = useRef(onQueryStart);
+  const runQueryRef = useRef(runQuery);
   const [statusMessage, setStatusMessage] = useState("Opening a shell-backed terminal...");
   const [sessionMeta, setSessionMeta] = useState(null);
 
@@ -53,6 +63,108 @@ export default function CliPanel({
   useEffect(() => {
     onQueryStartRef.current = onQueryStart;
   }, [onQueryStart]);
+
+  useEffect(() => {
+    runQueryRef.current = runQuery;
+  }, [runQuery]);
+
+  useEffect(() => {
+    connectionStateRef.current = connectionState;
+
+    if (connectionState === "shell") {
+      inputBufferRef.current = "";
+      cursorIndexRef.current = 0;
+      historyIndexRef.current = null;
+      historyDraftRef.current = "";
+    }
+  }, [connectionState]);
+
+  function renderPromptLine(terminal = terminalRef.current) {
+    if (!terminal) {
+      return;
+    }
+
+    const buffer = inputBufferRef.current;
+    const characters = Array.from(buffer);
+    const clampedCursorIndex = clamp(cursorIndexRef.current, 0, characters.length);
+    const trailingText = characters.slice(clampedCursorIndex).join("");
+    const trailingWidth = getDisplayWidth(trailingText);
+
+    cursorIndexRef.current = clampedCursorIndex;
+    terminal.write(`\r\x1b[2K${PROMPT}${buffer}`);
+
+    if (trailingWidth > 0) {
+      terminal.write(`\x1b[${trailingWidth}D`);
+    }
+  }
+
+  function clearInputLine(terminal = terminalRef.current) {
+    inputBufferRef.current = "";
+    cursorIndexRef.current = 0;
+    historyIndexRef.current = null;
+    historyDraftRef.current = "";
+    renderPromptLine(terminal);
+  }
+
+  function detachHistoryNavigation() {
+    if (historyIndexRef.current === null) {
+      return;
+    }
+
+    historyDraftRef.current = inputBufferRef.current;
+    historyIndexRef.current = null;
+  }
+
+  function rememberHistoryEntry(query) {
+    const normalizedQuery = String(query ?? "").trim();
+
+    if (!normalizedQuery) {
+      return;
+    }
+
+    historyEntriesRef.current = [...historyEntriesRef.current, normalizedQuery].slice(-100);
+    historyIndexRef.current = null;
+    historyDraftRef.current = "";
+  }
+
+  function applyHistoryEntry(entry, terminal = terminalRef.current) {
+    inputBufferRef.current = entry;
+    cursorIndexRef.current = Array.from(entry).length;
+    renderPromptLine(terminal);
+  }
+
+  function navigateHistory(direction, terminal = terminalRef.current) {
+    const entries = historyEntriesRef.current;
+
+    if (!terminal || entries.length === 0) {
+      return;
+    }
+
+    if (direction < 0) {
+      if (historyIndexRef.current === null) {
+        historyDraftRef.current = inputBufferRef.current;
+        historyIndexRef.current = entries.length - 1;
+      } else if (historyIndexRef.current > 0) {
+        historyIndexRef.current -= 1;
+      }
+
+      applyHistoryEntry(entries[historyIndexRef.current], terminal);
+      return;
+    }
+
+    if (historyIndexRef.current === null) {
+      return;
+    }
+
+    if (historyIndexRef.current < entries.length - 1) {
+      historyIndexRef.current += 1;
+      applyHistoryEntry(entries[historyIndexRef.current], terminal);
+      return;
+    }
+
+    historyIndexRef.current = null;
+    applyHistoryEntry(historyDraftRef.current, terminal);
+  }
 
   useEffect(() => {
     const mountNode = mountRef.current;
@@ -144,14 +256,137 @@ export default function CliPanel({
     window.addEventListener("resize", handleWindowResize);
 
     const terminalInput = terminal.onData((data) => {
-      const socket = socketRef.current;
+      if (connectionStateRef.current === "shell") {
+        const socket = socketRef.current;
 
-      if (!socket || socket.readyState !== WebSocket.OPEN) {
-        terminal.bell();
+        if (socket?.readyState === WebSocket.OPEN) {
+          socket.send(
+            JSON.stringify({
+              type: "terminal-input",
+              data,
+            }),
+          );
+        }
+
         return;
       }
 
-      socket.send(JSON.stringify({ type: "terminal-input", data }));
+      let index = 0;
+
+      while (index < data.length) {
+        if (data.startsWith("\u001b[A", index)) {
+          navigateHistory(-1, terminal);
+          index += 3;
+          continue;
+        }
+
+        if (data.startsWith("\u001b[B", index)) {
+          navigateHistory(1, terminal);
+          index += 3;
+          continue;
+        }
+
+        if (data.startsWith("\u001b[D", index)) {
+          const characters = Array.from(inputBufferRef.current);
+
+          if (cursorIndexRef.current > 0) {
+            cursorIndexRef.current -= 1;
+            renderPromptLine(terminal);
+          } else if (characters.length > 0) {
+            terminal.bell();
+          }
+
+          index += 3;
+          continue;
+        }
+
+        if (data.startsWith("\u001b[C", index)) {
+          const characters = Array.from(inputBufferRef.current);
+
+          if (cursorIndexRef.current < characters.length) {
+            cursorIndexRef.current += 1;
+            renderPromptLine(terminal);
+          } else if (characters.length > 0) {
+            terminal.bell();
+          }
+
+          index += 3;
+          continue;
+        }
+
+        const escapeSequenceLength = getEscapeSequenceLength(data, index);
+
+        if (escapeSequenceLength > 0) {
+          index += escapeSequenceLength;
+          continue;
+        }
+
+        const char = data[index];
+
+        if (char === "\u0003") {
+          terminal.write("\r\x1b[2K^C\r\n");
+          clearInputLine(terminal);
+          index += 1;
+          continue;
+        }
+
+        if (char === "\u007f" || char === "\b") {
+          const characters = Array.from(inputBufferRef.current);
+
+          if (cursorIndexRef.current > 0) {
+            detachHistoryNavigation();
+            characters.splice(cursorIndexRef.current - 1, 1);
+            inputBufferRef.current = characters.join("");
+            cursorIndexRef.current -= 1;
+            renderPromptLine(terminal);
+          }
+          index += 1;
+          continue;
+        }
+
+        if (char === "\r") {
+          const query = inputBufferRef.current.trim();
+          inputBufferRef.current = "";
+          cursorIndexRef.current = 0;
+          historyIndexRef.current = null;
+          historyDraftRef.current = "";
+          terminal.write("\r\n");
+
+          if (!query) {
+            terminal.write(PROMPT);
+            index += 1;
+            continue;
+          }
+
+          if (!canRunExamples(connectionStateRef.current)) {
+            terminal.bell();
+            terminal.write(PROMPT);
+            index += 1;
+            continue;
+          }
+
+          if (isTerminalSessionCommand(query)) {
+            void executeSessionCommand(query);
+            index += 1;
+            continue;
+          }
+
+          void executeTerminalQuery(query);
+          index += 1;
+          continue;
+        }
+
+        if (char >= " " && char !== "\u007f" && char !== "\n") {
+          detachHistoryNavigation();
+          const characters = Array.from(inputBufferRef.current);
+          characters.splice(cursorIndexRef.current, 0, char);
+          inputBufferRef.current = characters.join("");
+          cursorIndexRef.current += 1;
+          renderPromptLine(terminal);
+        }
+
+        index += 1;
+      }
     });
 
     const socket = new WebSocket(buildWebSocketUrl());
@@ -174,6 +409,7 @@ export default function CliPanel({
       }
 
       if (message.type === "session-ready") {
+        connectionStateRef.current = message.ready ? "connecting" : "error";
         setSessionMeta(message.engine || null);
         setStatusMessage(message.message || "Terminal session created.");
         onConnectionChangeRef.current?.({
@@ -184,9 +420,19 @@ export default function CliPanel({
       }
 
       if (message.type === "session-status") {
+        const nextStatus = normalizeConnectionStatus(message.status);
+        connectionStateRef.current = nextStatus;
+
+        if (nextStatus === "shell" || nextStatus === "connected") {
+          inputBufferRef.current = "";
+          cursorIndexRef.current = 0;
+          historyIndexRef.current = null;
+          historyDraftRef.current = "";
+        }
+
         setStatusMessage(message.message || "Terminal state changed.");
         onConnectionChangeRef.current?.({
-          status: normalizeConnectionStatus(message.status),
+          status: nextStatus,
           message: message.message || "Terminal state changed.",
         });
         return;
@@ -219,6 +465,7 @@ export default function CliPanel({
     };
 
     socket.onerror = () => {
+      connectionStateRef.current = "error";
       setStatusMessage("Failed to connect to the backend WebSocket.");
       onConnectionChangeRef.current?.({
         status: "error",
@@ -227,6 +474,7 @@ export default function CliPanel({
     };
 
     socket.onclose = () => {
+      connectionStateRef.current = "disconnected";
       setStatusMessage("Terminal connection closed.");
       onConnectionChangeRef.current?.({
         status: "disconnected",
@@ -240,6 +488,11 @@ export default function CliPanel({
       window.removeEventListener("resize", handleWindowResize);
       socket.close();
       terminal.dispose();
+      inputBufferRef.current = "";
+      cursorIndexRef.current = 0;
+      historyEntriesRef.current = [];
+      historyIndexRef.current = null;
+      historyDraftRef.current = "";
       lastViewportRef.current = { width: 0, height: 0, cols: 0, rows: 0 };
       terminalRef.current = null;
       fitAddonRef.current = null;
@@ -248,38 +501,33 @@ export default function CliPanel({
     };
   }, []);
 
-  async function handleExampleClick(query) {
-    if (!canRunExamples(connectionState)) {
+  async function executeTerminalQuery(query, { echoCommand = false } = {}) {
+    const terminal = terminalRef.current;
+    const activeRunQuery = runQueryRef.current;
+
+    if (!terminal || typeof activeRunQuery !== "function") {
+      setStatusMessage("The shared query runner is not connected.");
       return;
     }
 
-    const terminal = terminalRef.current;
+    rememberHistoryEntry(query);
+    inputBufferRef.current = "";
+    cursorIndexRef.current = 0;
     onQueryStartRef.current?.(query);
     setStatusMessage(`Running: ${query}`);
-    terminal?.write(`\r\ndb > ${query}\r\n`);
+
+    if (echoCommand) {
+      terminal.write(`\r\ndb > ${query}\r\n`);
+    }
 
     try {
-      const response = await fetch("/api/query", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ query }),
+      const nextPayload = await activeRunQuery(query, {
+        updateSharedState: true,
+        trackLoading: true,
       });
-
-      const payload = await response.json();
-      const nextPayload = {
-        success: Boolean(response.ok && payload.success !== false),
-        queryType: payload.queryType ?? "",
-        message: payload.message ?? (response.ok ? "Executed." : "Query failed."),
-        parseTree: payload.parseTree ?? null,
-        rows: Array.isArray(payload.rows) ? payload.rows : [],
-        rawOutput: payload.rawOutput ?? "",
-      };
 
       writeExampleResult(terminal, nextPayload);
       setStatusMessage(nextPayload.message);
-      onQueryResultRef.current?.(nextPayload);
     } catch (error) {
       const failedPayload = {
         success: false,
@@ -291,10 +539,49 @@ export default function CliPanel({
       };
       writeExampleResult(terminal, failedPayload);
       setStatusMessage(failedPayload.message);
-      onQueryResultRef.current?.(failedPayload);
     }
 
-    terminal?.focus();
+    terminal.focus();
+  }
+
+  function executeSessionCommand(query) {
+    const terminal = terminalRef.current;
+    const socket = socketRef.current;
+
+    if (!terminal) {
+      return;
+    }
+
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      const message = "The terminal transport is not connected.";
+      setStatusMessage(message);
+      terminal.write(`${message}\r\n${PROMPT}`);
+      terminal.focus();
+      return;
+    }
+
+    rememberHistoryEntry(query);
+    inputBufferRef.current = "";
+    cursorIndexRef.current = 0;
+    onQueryStartRef.current?.(query);
+    setStatusMessage(`Running: ${query}`);
+
+    socket.send(
+      JSON.stringify({
+        type: "run-query",
+        query,
+      }),
+    );
+
+    terminal.focus();
+  }
+
+  async function handleExampleClick(query) {
+    if (!canRunExamples(connectionState)) {
+      return;
+    }
+
+    await executeTerminalQuery(query, { echoCommand: true });
   }
 
   return (
@@ -366,8 +653,64 @@ function buildWebSocketUrl() {
   return `${protocol}://${window.location.host}/ws/terminal`;
 }
 
+function clamp(value, min, max) {
+  return Math.min(Math.max(value, min), max);
+}
+
+function getDisplayWidth(text) {
+  return Array.from(text).reduce(
+    (width, character) => width + (isWideCharacter(character) ? 2 : 1),
+    0,
+  );
+}
+
+function isWideCharacter(character) {
+  return /[\u1100-\u115F\u2329\u232A\u2E80-\uA4CF\uAC00-\uD7A3\uF900-\uFAFF\uFE10-\uFE19\uFE30-\uFE6F\uFF00-\uFF60\uFFE0-\uFFE6]/u.test(
+    character,
+  );
+}
+
+function getEscapeSequenceLength(data, startIndex) {
+  if (data[startIndex] !== "\u001b") {
+    return 0;
+  }
+
+  const nextChar = data[startIndex + 1];
+
+  if (!nextChar) {
+    return 1;
+  }
+
+  if (nextChar === "[") {
+    let index = startIndex + 2;
+
+    while (index < data.length) {
+      const code = data.charCodeAt(index);
+
+      if (code >= 0x40 && code <= 0x7e) {
+        return index - startIndex + 1;
+      }
+
+      index += 1;
+    }
+
+    return data.length - startIndex;
+  }
+
+  if (nextChar === "O") {
+    return Math.min(3, data.length - startIndex);
+  }
+
+  return 2;
+}
+
 function canRunExamples(connectionState) {
-  return connectionState === "connected" || connectionState === "shell";
+  return connectionState === "connected";
+}
+
+function isTerminalSessionCommand(query) {
+  const normalized = String(query ?? "").trim().toLowerCase();
+  return normalized === ".exit" || normalized === "quit";
 }
 
 function inferQueryType(query) {
