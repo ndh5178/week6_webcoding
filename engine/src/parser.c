@@ -156,6 +156,22 @@ static int parse_value_list(Parser *parser, Statement *statement, char *error, i
     return 1;
 }
 
+static int parse_where_condition(Parser *parser, WhereCondition *condition, char *error, int error_size) {
+    if (!parse_identifier(parser, condition->column, MAX_COLUMN_NAME, error, error_size)) {
+        return 0;
+    }
+
+    if (!expect_char(parser, '=', error, error_size)) {
+        return 0;
+    }
+
+    if (!parse_value(parser, condition->value, MAX_VALUE_LEN, error, error_size)) {
+        return 0;
+    }
+
+    return 1;
+}
+
 static int parse_identifier_list(Parser *parser, Statement *statement, char *error, int error_size) {
     statement->selected_column_count = 0;
 
@@ -218,6 +234,8 @@ static int parse_insert(Parser *parser, Statement *statement, char *error, int e
 
 static int parse_where_clause(Parser *parser, Statement *statement, char *error, int error_size) {
     statement->where.has_where = 0;
+    statement->where.condition_count = 0;
+    statement->where.join_count = 0;
     skip_spaces(parser);
 
     if (!match_keyword(parser, "WHERE")) {
@@ -226,16 +244,50 @@ static int parse_where_clause(Parser *parser, Statement *statement, char *error,
 
     statement->where.has_where = 1;
 
-    if (!parse_identifier(parser, statement->where.column, MAX_COLUMN_NAME, error, error_size)) {
+    if (statement->where.condition_count >= MAX_WHERE_CONDITIONS) {
+        set_error(error, error_size, "Too many WHERE conditions");
         return 0;
     }
 
-    if (!expect_char(parser, '=', error, error_size)) {
+    if (!parse_where_condition(
+            parser,
+            &statement->where.conditions[statement->where.condition_count],
+            error,
+            error_size)) {
         return 0;
     }
 
-    if (!parse_value(parser, statement->where.value, MAX_VALUE_LEN, error, error_size)) {
-        return 0;
+    statement->where.condition_count++;
+
+    while (1) {
+        WhereJoinType join_type;
+
+        skip_spaces(parser);
+
+        if (match_keyword(parser, "AND")) {
+            join_type = WHERE_JOIN_AND;
+        } else if (match_keyword(parser, "OR")) {
+            join_type = WHERE_JOIN_OR;
+        } else {
+            break;
+        }
+
+        if (statement->where.condition_count >= MAX_WHERE_CONDITIONS) {
+            set_error(error, error_size, "Too many WHERE conditions");
+            return 0;
+        }
+
+        statement->where.joins[statement->where.join_count++] = join_type;
+
+        if (!parse_where_condition(
+                parser,
+                &statement->where.conditions[statement->where.condition_count],
+                error,
+                error_size)) {
+            return 0;
+        }
+
+        statement->where.condition_count++;
     }
 
     return 1;

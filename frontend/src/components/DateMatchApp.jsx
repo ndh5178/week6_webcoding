@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 const MBTI_TYPES = [
   "ISTJ", "ISFJ", "INFJ", "INTJ",
@@ -93,22 +93,22 @@ function normalizeProfiles(rows, fallbackProfiles = []) {
     .filter((row) => row.name && row.mbti && row.hobby);
 }
 
-async function runQuery(query) {
-  const response = await fetch("/api/query", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ query }),
+function buildProfileKey(profile) {
+  return `${profile.name}::${profile.mbti}::${profile.hobby}`;
+}
+
+function mergeProfiles(...profileGroups) {
+  const merged = new Map();
+
+  profileGroups.flat().forEach((profile) => {
+    merged.set(buildProfileKey(profile), profile);
   });
 
-  const payload = await response.json();
+  return [...merged.values()];
+}
 
-  if (!response.ok || payload.success === false) {
-    throw new Error(payload.message || "SQL 실행에 실패했습니다.");
-  }
-
-  return payload;
+function sortProfiles(left, right) {
+  return left.name.localeCompare(right.name, "ko");
 }
 
 export default function DateMatchApp({
@@ -116,7 +116,9 @@ export default function DateMatchApp({
   queryType = "",
   loading: parentLoading = false,
   error: parentError = "",
+  runQuery,
 }) {
+  const runQueryRef = useRef(runQuery);
   const [form, setForm] = useState({ name: "", mbti: "", hobby: "" });
   const [saving, setSaving] = useState(true);
   const [results, setResults] = useState(null);
@@ -124,14 +126,31 @@ export default function DateMatchApp({
   const [error, setError] = useState("");
 
   useEffect(() => {
+    runQueryRef.current = runQuery;
+  }, [runQuery]);
+
+  useEffect(() => {
     let cancelled = false;
 
     async function loadProfiles() {
+      const activeRunQuery = runQueryRef.current;
+
+      if (typeof activeRunQuery !== "function") {
+        if (!cancelled) {
+          setError("패널 3의 query runner가 연결되지 않았습니다.");
+          setSaving(false);
+        }
+        return;
+      }
+
       try {
         setSaving(true);
         setError("");
 
-        const payload = await runQuery("SELECT * FROM profiles;");
+        const payload = await activeRunQuery("SELECT * FROM profiles;", {
+          updateSharedState: false,
+          trackLoading: false,
+        });
         if (!cancelled) {
           setProfiles(normalizeProfiles(payload.rows));
         }
@@ -179,37 +198,122 @@ export default function DateMatchApp({
       mbti,
     )}', '${escapeSqlValue(hobby)}');`;
 
+    const activeRunQuery = runQueryRef.current;
+
+    if (typeof activeRunQuery !== "function") {
+      setError("패널 3의 query runner가 연결되지 않았습니다.");
+      return;
+    }
+
     try {
       setSaving(true);
       setError("");
 
-      await runQuery(insertQuery);
+      await activeRunQuery(insertQuery, {
+        updateSharedState: true,
+        trackLoading: false,
+      });
 
-      const payload = await runQuery("SELECT * FROM profiles;");
+      const payload = await activeRunQuery("SELECT * FROM profiles;", {
+        updateSharedState: true,
+        trackLoading: false,
+      });
       const nextProfiles = normalizeProfiles(payload.rows);
       setProfiles(nextProfiles);
 
-      const targetIndex = nextProfiles.findLastIndex(
-        (person) =>
-          person.name === target.name &&
-          person.mbti === target.mbti &&
-          person.hobby === target.hobby,
+      const exactMatchQuery = `SELECT * FROM profiles WHERE mbti = '${escapeSqlValue(
+        target.mbti,
+      )}' AND hobby = '${escapeSqlValue(target.hobby)}';`;
+      const relatedMatchQuery = `SELECT * FROM profiles WHERE mbti = '${escapeSqlValue(
+        target.mbti,
+      )}' OR hobby = '${escapeSqlValue(target.hobby)}';`;
+
+      const [exactPayload, relatedPayload] = await Promise.all([
+        activeRunQuery(exactMatchQuery, {
+          updateSharedState: false,
+          trackLoading: false,
+        }),
+        activeRunQuery(relatedMatchQuery, {
+          updateSharedState: false,
+          trackLoading: false,
+        }),
+      ]);
+
+      const candidateProfiles = mergeProfiles(
+        normalizeProfiles(exactPayload.rows, nextProfiles),
+        normalizeProfiles(relatedPayload.rows, nextProfiles),
       );
 
-      const matched = nextProfiles
-        .filter((_, index) => index !== targetIndex)
+      const exactMatches = normalizeProfiles(exactPayload.rows, nextProfiles)
+        .filter(
+          (person) =>
+            !(
+              person.name === target.name &&
+              person.mbti === target.mbti &&
+              person.hobby === target.hobby
+            ),
+        )
+        .sort(sortProfiles);
+
+      const relatedMatches = normalizeProfiles(relatedPayload.rows, nextProfiles)
+        .filter(
+          (person) =>
+            !(
+              person.name === target.name &&
+              person.mbti === target.mbti &&
+              person.hobby === target.hobby
+            ),
+        )
+        .filter(
+          (person) =>
+            !exactMatches.some(
+              (exactPerson) =>
+                exactPerson.name === person.name &&
+                exactPerson.mbti === person.mbti &&
+                exactPerson.hobby === person.hobby,
+            ),
+        )
+        .sort(sortProfiles);
+
+      const matched = candidateProfiles
+        .filter(
+          (person) =>
+            !(
+              person.name === target.name &&
+              person.mbti === target.mbti &&
+              person.hobby === target.hobby
+            ),
+        )
         .map((person) => {
           const score = calculateScore(person, target);
+          const isExactMatch = exactMatches.some(
+            (exactPerson) =>
+              exactPerson.name === person.name &&
+              exactPerson.mbti === person.mbti &&
+              exactPerson.hobby === person.hobby,
+          );
+
           return {
             ...person,
             score,
+            matchSource: isExactMatch ? "exact" : "related",
             comment: buildComment(person, target, score),
           };
         })
-        .sort((left, right) => right.score - left.score)
+        .sort((left, right) => {
+          if (left.matchSource !== right.matchSource) {
+            return left.matchSource === "exact" ? -1 : 1;
+          }
+
+          if (left.score !== right.score) {
+            return right.score - left.score;
+          }
+
+          return sortProfiles(left, right);
+        })
         .slice(0, 3);
 
-      setResults({ target, matched });
+      setResults({ target, matched, exactMatches, relatedMatches });
     } catch (submitError) {
       setError(submitError.message || "프로필 저장 또는 매칭 계산에 실패했습니다.");
     } finally {
@@ -326,6 +430,9 @@ export default function DateMatchApp({
               <p style={S.resultsSub}>
                 {results.target.mbti} &middot; {results.target.hobby}
               </p>
+              <p style={S.resultsMeta}>
+                AND 정확 일치 {results.exactMatches.length}명 · OR 관련 후보 {results.relatedMatches.length}명
+              </p>
             </div>
 
             {results.matched.length === 0 ? (
@@ -353,6 +460,15 @@ export default function DateMatchApp({
                       <p style={S.matchName}>{person.name}</p>
                       <div style={S.matchInfo}>
                         <span style={S.mbtiTag}>{person.mbti}</span>
+                        <span
+                          style={
+                            person.matchSource === "exact"
+                              ? S.exactTag
+                              : S.relatedTag
+                          }
+                        >
+                          {person.matchSource === "exact" ? "AND 일치" : "OR 후보"}
+                        </span>
                         <span style={S.hobbyTag}>
                           {HOBBY_EMOJIS[person.hobby] || "✨"} {person.hobby}
                         </span>
@@ -583,6 +699,12 @@ const S = {
     fontSize: 12,
     color: "#94a3b8",
   },
+  resultsMeta: {
+    margin: "8px 0 0",
+    fontSize: 12,
+    color: "#cbd5e1",
+    fontWeight: 600,
+  },
   matchCard: {
     position: "relative",
     borderRadius: 14,
@@ -632,6 +754,22 @@ const S = {
     fontWeight: 600,
     background: "rgba(253, 41, 123, 0.15)",
     color: "#fda4af",
+  },
+  exactTag: {
+    padding: "2px 8px",
+    borderRadius: 999,
+    fontSize: 11,
+    fontWeight: 700,
+    background: "rgba(16, 185, 129, 0.18)",
+    color: "#bbf7d0",
+  },
+  relatedTag: {
+    padding: "2px 8px",
+    borderRadius: 999,
+    fontSize: 11,
+    fontWeight: 700,
+    background: "rgba(56, 189, 248, 0.18)",
+    color: "#bae6fd",
   },
   hobbyTag: {
     padding: "2px 8px",
