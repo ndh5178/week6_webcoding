@@ -20,6 +20,7 @@ pnpm-debug.log*
 # Engine-generated runtime artifacts
 engine/build/*
 !engine/build/.gitkeep
+engine/src/*.o
 engine/data/*.csv
 !engine/data/.gitkeep
 

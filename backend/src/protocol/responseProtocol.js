@@ -111,14 +111,20 @@ function inferRowObject(query, values) {
   const type = inferQueryType(query);
 
   if (type === "SELECT") {
-    const match = query.trim().match(/^SELECT\s+(.+?)\s+FROM/i);
+    const match = query
+      .trim()
+      .match(/^SELECT\s+(.+?)\s+FROM\s+([A-Za-z_][A-Za-z0-9_]*)/i);
     if (!match) {
       return values;
     }
 
     const columnsToken = match[1].trim();
+    const tableName = match[2].trim().toLowerCase();
+    const defaultColumnsByTable = {
+      profiles: ["name", "mbti", "hobby"],
+    };
     const columns = columnsToken === "*"
-      ? ["id", "author", "content"]
+      ? (defaultColumnsByTable[tableName] ?? values.map((_, index) => `column${index + 1}`))
       : columnsToken.split(",").map((column) => column.trim());
 
     const row = {};

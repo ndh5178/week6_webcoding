@@ -5,16 +5,16 @@ import "xterm/css/xterm.css";
 
 const DEFAULT_EXAMPLES = [
   {
-    label: "INSERT demo",
-    query: "INSERT INTO comments VALUES (1, 'kim', 'hello');",
+    label: "INSERT profile",
+    query: "INSERT INTO profiles VALUES ('김민수', 'INFP', '독서');",
   },
   {
     label: "SELECT all",
-    query: "SELECT * FROM comments;",
+    query: "SELECT * FROM profiles;",
   },
   {
-    label: "SELECT where",
-    query: "SELECT author, content FROM comments WHERE id = 1;",
+    label: "SELECT filter",
+    query: "SELECT name, hobby FROM profiles WHERE mbti = 'ENFP';",
   },
 ];
 
@@ -271,15 +271,17 @@ export default function CliPanel({
         <span style={styles.eyebrow}>LIVE TERMINAL</span>
         <h2 style={styles.title}>CLI Panel</h2>
         <p style={styles.subtitle}>
-          This panel is attached to a real shell session. The shell opens in the project directory,
-          then launches the built SQL engine inside that terminal.
+          This panel opens a terminal-style session, then runs profile SQL through the built engine
+          so the parse tree and service panel stay in sync.
         </p>
       </header>
 
       <div style={styles.card}>
         <div style={styles.cardHeader}>
           <span style={styles.cardTitle}>Example SQL</span>
-          <span style={styles.cardBadge(connectionState)}>{formatConnectionLabel(connectionState)}</span>
+          <span style={styles.cardBadge(connectionState)}>
+            {formatConnectionLabel(connectionState)}
+          </span>
         </div>
 
         <div style={styles.buttonRow}>
@@ -313,7 +315,9 @@ export default function CliPanel({
       </div>
 
       <footer style={styles.footer}>
-        <span style={styles.footerChip(connectionState)}>{formatConnectionLabel(connectionState)}</span>
+        <span style={styles.footerChip(connectionState)}>
+          {formatConnectionLabel(connectionState)}
+        </span>
         <span style={styles.footerText}>{statusMessage}</span>
       </footer>
     </section>
@@ -323,8 +327,6 @@ export default function CliPanel({
 function buildWebSocketUrl() {
   const protocol = window.location.protocol === "https:" ? "wss" : "ws";
 
-  // In Vite dev, connect straight to the backend to avoid an extra proxy layer
-  // logging socket aborts during terminal reconnects or page refreshes.
   if (import.meta.env.DEV) {
     return `${protocol}://${window.location.hostname}:3001/ws/terminal`;
   }

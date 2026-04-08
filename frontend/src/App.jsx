@@ -5,7 +5,7 @@ import ParseTreePanel from "./components/ParseTreePanel";
 import DateMatchApp from "./components/DateMatchApp";
 
 const DEFAULT_MESSAGE =
-  "Open the shell-backed terminal, let it launch the built SQL engine, then run SQL to update the parse tree and service panel.";
+  "Open the shell-backed terminal, let it launch the built SQL engine, then run profile SQL to update the parse tree and panel 3.";
 
 export default function App() {
   const [query, setQuery] = useState("");
@@ -37,9 +37,7 @@ export default function App() {
 
     if ((status === "connected" || status === "shell" || status === "connecting") && !query) {
       setMessage(nextMessage || DEFAULT_MESSAGE);
-      if (status !== "connected") {
-        setError("");
-      }
+      setError("");
       return;
     }
 
@@ -61,8 +59,8 @@ export default function App() {
         </div>
         <div style={styles.heroMeta}>
           <p style={styles.subtitle}>
-            The left panel now opens a real shell session in the project directory and launches the
-            built SQL engine inside that terminal.
+            The left panel now opens a terminal-style query runner, panel 2 visualizes the latest
+            parse tree, and panel 3 keeps the dating match flow on top of the same profile data.
           </p>
           <p style={styles.connection(connectionState)}>
             Terminal: {formatConnectionLabel(connectionState)}
@@ -78,7 +76,12 @@ export default function App() {
           onQueryStart={handleQueryStart}
         />
         <ParseTreePanel parseTree={parseTree} />
-        <DateMatchApp />
+        <DateMatchApp
+          rows={rows}
+          queryType={queryType}
+          loading={loading}
+          error={error}
+        />
       </section>
     </main>
   );
@@ -91,7 +94,7 @@ function formatConnectionLabel(connectionState) {
     case "shell":
       return "Shell Ready";
     case "error":
-      return "Engine Missing";
+      return "Engine Error";
     case "disconnected":
       return "Disconnected";
     case "closed":
@@ -157,17 +160,17 @@ const styles = {
         ? "rgba(16, 185, 129, 0.16)"
         : connectionState === "shell"
           ? "rgba(56, 189, 248, 0.16)"
-        : connectionState === "error"
-          ? "rgba(248, 113, 113, 0.16)"
-          : "rgba(148, 163, 184, 0.12)",
+          : connectionState === "error"
+            ? "rgba(248, 113, 113, 0.16)"
+            : "rgba(148, 163, 184, 0.12)",
     color:
       connectionState === "connected"
         ? "#bbf7d0"
         : connectionState === "shell"
           ? "#bae6fd"
-        : connectionState === "error"
-          ? "#fecaca"
-          : "#cbd5e1",
+          : connectionState === "error"
+            ? "#fecaca"
+            : "#cbd5e1",
     fontSize: "12px",
     fontWeight: 700,
   }),

@@ -53,7 +53,7 @@ CliPanel
 
 ## C 작업자가 알아야 하는 구조 포인트
 
-1. 현재 서비스 도메인은 `comments(id, author, content)` 하나로 맞춘다.
+1. 현재 서비스 도메인은 `profiles(name, mbti, hobby)` 하나로 맞춘다.
 2. backend는 엔진을 REPL stdin이 아니라 **sql 파일 실행 모드**로 호출한다.
 3. ServicePanel은 `rows`만 받아 렌더링한다.
 4. `rows`가 비어 있으면 서비스 empty state가 뜬다.

@@ -5,12 +5,12 @@
 /*
  * Change this registry first when the service domain changes.
  * Example:
- *   comments -> posts
- *   author   -> nickname
- *   content  -> message
+ *   profiles -> people
+ *   mbti     -> personality
+ *   hobby    -> interest
  */
 static const TableSchema SCHEMAS[] = {
-    { "comments", 3, { "id", "author", "content" } },
+    { "profiles", 3, { "name", "mbti", "hobby" } },
     { NULL, 0, { NULL } }
 };
 

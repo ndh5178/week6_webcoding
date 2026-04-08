@@ -6,7 +6,7 @@ const { WebSocket, WebSocketServer } = require("ws");
 const {
   createShellSession,
   executeQuery,
-  getEngineStatus
+  getEngineStatus,
 } = require("./bridge/engineBridge");
 const { buildResponsePayload } = require("./protocol/responseProtocol");
 
@@ -26,7 +26,7 @@ app.get("/api/health", (_req, res) => {
   res.json({
     ok: true,
     service: "cupid-sql-backend",
-    engine: getEngineStatus()
+    engine: getEngineStatus(),
   });
 });
 
@@ -38,7 +38,7 @@ app.post("/api/query", async (req, res) => {
       success: false,
       message: "Query must be a non-empty string.",
       parseTree: null,
-      rows: []
+      rows: [],
     });
   }
 
@@ -52,7 +52,7 @@ app.post("/api/query", async (req, res) => {
       success: false,
       message: error.message || "Unexpected backend error.",
       parseTree: null,
-      rows: []
+      rows: [],
     });
   }
 });
@@ -72,14 +72,14 @@ wss.on("connection", (socket) => {
     engine: engineStatus,
     message: engineStatus.exists
       ? `Opened ${engineStatus.shell} in ${engineStatus.workingDirectory}. Waiting for the SQL engine prompt...`
-      : `Engine binary not found at ${engineStatus.path}`
+      : `Engine binary not found at ${engineStatus.path}`,
   });
 
   if (!engineStatus.exists) {
     send(socket, {
       type: "session-status",
       status: "error",
-      message: `Engine binary not found at ${engineStatus.path}`
+      message: `Engine binary not found at ${engineStatus.path}`,
     });
     sendTerminalOutput(socket, `\r\n[backend] Engine binary not found at ${engineStatus.path}\r\n`);
     return;
@@ -92,17 +92,17 @@ wss.on("connection", (socket) => {
       },
       onExit({ code, signal }) {
         handleSessionExit(code, signal);
-      }
+      },
     });
   } catch (error) {
     send(socket, {
       type: "system-error",
-      message: error.message || "Failed to open the shell session."
+      message: error.message || "Failed to open the shell session.",
     });
     send(socket, {
       type: "session-status",
       status: "error",
-      message: error.message || "Failed to open the shell session."
+      message: error.message || "Failed to open the shell session.",
     });
     return;
   }
@@ -110,7 +110,7 @@ wss.on("connection", (socket) => {
   send(socket, {
     type: "session-status",
     status: "launching",
-    message: `Shell opened at ${engineStatus.workingDirectory}. Launching ${engineStatus.launchCommand}...`
+    message: `Shell opened at ${engineStatus.workingDirectory}. Launching ${engineStatus.launchCommand}...`,
   });
 
   setTimeout(() => {
@@ -123,7 +123,7 @@ wss.on("connection", (socket) => {
     } catch (error) {
       send(socket, {
         type: "system-error",
-        message: error.message || "Failed to launch the SQL engine inside the shell."
+        message: error.message || "Failed to launch the SQL engine inside the shell.",
       });
     }
   }, LAUNCH_DELAY_MS);
@@ -136,7 +136,7 @@ wss.on("connection", (socket) => {
     } catch (_error) {
       send(socket, {
         type: "system-error",
-        message: "WebSocket payload must be valid JSON."
+        message: "WebSocket payload must be valid JSON.",
       });
       return;
     }
@@ -187,7 +187,7 @@ wss.on("connection", (socket) => {
       send(socket, {
         type: "session-status",
         status: "connected",
-        message: `Shell opened at ${engineStatus.workingDirectory}. ${engineStatus.path} is running.`
+        message: `Shell opened at ${engineStatus.workingDirectory}. ${engineStatus.path} is running.`,
       });
     }
 
@@ -208,7 +208,7 @@ wss.on("connection", (socket) => {
         status: "shell",
         message:
           `The SQL engine stopped, but the shell is still open at ${engineStatus.workingDirectory}. ` +
-          `Run ${engineStatus.launchCommand} to start it again.`
+          `Run ${engineStatus.launchCommand} to start it again.`,
       });
     }
   }
@@ -226,7 +226,7 @@ wss.on("connection", (socket) => {
         message: closeMessage,
         parseTree: null,
         rows: [],
-        rawOutput: pendingOutput
+        rawOutput: pendingOutput,
       });
     }
 
@@ -235,7 +235,7 @@ wss.on("connection", (socket) => {
     send(socket, {
       type: "session-status",
       status: "closed",
-      message: closeMessage
+      message: closeMessage,
     });
   }
 
@@ -277,8 +277,7 @@ wss.on("connection", (socket) => {
     if (!engineReady) {
       send(socket, {
         type: "system-error",
-        message:
-          `The SQL engine is not running yet. Start it with ${engineStatus.launchCommand}.`
+        message: `The SQL engine is not running yet. Start it with ${engineStatus.launchCommand}.`,
       });
       return;
     }
@@ -299,7 +298,7 @@ wss.on("connection", (socket) => {
 
     send(socket, {
       type: "query-started",
-      query
+      query,
     });
   }
 
@@ -320,7 +319,7 @@ wss.on("connection", (socket) => {
         message: "The SQL engine process exited. The shell is still open.",
         parseTree: null,
         rows: [],
-        rawOutput: pendingOutput
+        rawOutput: pendingOutput,
       });
       return true;
     }
@@ -335,7 +334,7 @@ wss.on("connection", (socket) => {
       message: payload.message ?? "Unexpected engine response.",
       parseTree: payload.parseTree ?? null,
       rows: payload.rows ?? [],
-      rawOutput: payload.rawOutput ?? pendingOutput
+      rawOutput: payload.rawOutput ?? pendingOutput,
     };
 
     pendingQuery = null;
@@ -343,7 +342,7 @@ wss.on("connection", (socket) => {
 
     send(socket, {
       type: "query-result",
-      payload: nextPayload
+      payload: nextPayload,
     });
   }
 });
@@ -413,6 +412,6 @@ function send(socket, payload) {
 function sendTerminalOutput(socket, text) {
   send(socket, {
     type: "terminal-output",
-    data: text
+    data: text,
   });
 }
