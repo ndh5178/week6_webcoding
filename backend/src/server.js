@@ -65,6 +65,7 @@ wss.on("connection", (socket) => {
   let inputBuffer = "";
   let promptBuffer = "";
   let engineReady = false;
+  let shellFallbackArmed = false;
 
   send(socket, {
     type: "session-ready",
@@ -187,11 +188,13 @@ wss.on("connection", (socket) => {
     sendTerminalOutput(socket, text);
 
     promptBuffer = keepTail(promptBuffer + stripAnsi(text), MAX_PROMPT_BUFFER);
+    const normalizedText = stripAnsi(text);
 
     const latestPrompt = getLatestPrompt(promptBuffer);
 
     if (latestPrompt === "engine" && !engineReady) {
       engineReady = true;
+      shellFallbackArmed = false;
       inputBuffer = "";
 
       send(socket, {
@@ -209,8 +212,13 @@ wss.on("connection", (socket) => {
       }
     }
 
-    if (engineReady && latestPrompt === "shell") {
+    if (normalizedText.includes("Bye.")) {
+      shellFallbackArmed = true;
+    }
+
+    if (engineReady && shellFallbackArmed && latestPrompt === "shell") {
       engineReady = false;
+      shellFallbackArmed = false;
       inputBuffer = "";
 
       send(socket, {
@@ -241,6 +249,7 @@ wss.on("connection", (socket) => {
     }
 
     engineReady = false;
+    shellFallbackArmed = false;
 
     send(socket, {
       type: "session-status",
@@ -305,6 +314,7 @@ wss.on("connection", (socket) => {
   function beginQuery(query) {
     pendingQuery = query;
     pendingOutput = "";
+    shellFallbackArmed = isExitCommand(query);
 
     send(socket, {
       type: "query-started",
