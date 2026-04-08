@@ -6,6 +6,11 @@
 #include <string.h>
 #include <sys/stat.h>
 
+#ifdef _WIN32
+#include <direct.h>
+#define mkdir(path) _mkdir(path)
+#endif
+
 static void set_error(char *error, int error_size, const char *message) {
     if (error != NULL && error_size > 0) {
         snprintf(error, (size_t)error_size, "%s", message);
