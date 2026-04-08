@@ -30,6 +30,7 @@ export default function CliPanel({
   const fitAddonRef = useRef(null);
   const resizeObserverRef = useRef(null);
   const socketRef = useRef(null);
+  const lastViewportRef = useRef({ width: 0, height: 0, cols: 0, rows: 0 });
   const onConnectionChangeRef = useRef(onConnectionChange);
   const onQueryResultRef = useRef(onQueryResult);
   const onQueryStartRef = useRef(onQueryStart);
@@ -82,14 +83,38 @@ export default function CliPanel({
     const fitAddon = new FitAddon();
     terminal.loadAddon(fitAddon);
     terminal.open(mountNode);
-    fitAddon.fit();
     terminal.focus();
 
     terminalRef.current = terminal;
     fitAddonRef.current = fitAddon;
 
     const syncTerminalSize = () => {
+      const width = mountNode.clientWidth;
+      const height = mountNode.clientHeight;
+
+      if (!width || !height) {
+        return;
+      }
+
+      const previousViewport = lastViewportRef.current;
+
+      if (
+        previousViewport.width === width &&
+        previousViewport.height === height &&
+        previousViewport.cols > 0 &&
+        previousViewport.rows > 0
+      ) {
+        return;
+      }
+
       fitAddon.fit();
+
+      lastViewportRef.current = {
+        width,
+        height,
+        cols: terminal.cols,
+        rows: terminal.rows,
+      };
 
       const socket = socketRef.current;
       if (socket?.readyState === WebSocket.OPEN) {
@@ -102,6 +127,8 @@ export default function CliPanel({
         );
       }
     };
+
+    requestAnimationFrame(syncTerminalSize);
 
     const resizeObserver = new ResizeObserver(() => {
       syncTerminalSize();
@@ -213,6 +240,7 @@ export default function CliPanel({
       window.removeEventListener("resize", handleWindowResize);
       socket.close();
       terminal.dispose();
+      lastViewportRef.current = { width: 0, height: 0, cols: 0, rows: 0 };
       terminalRef.current = null;
       fitAddonRef.current = null;
       resizeObserverRef.current = null;
@@ -294,6 +322,13 @@ export default function CliPanel({
 
 function buildWebSocketUrl() {
   const protocol = window.location.protocol === "https:" ? "wss" : "ws";
+
+  // In Vite dev, connect straight to the backend to avoid an extra proxy layer
+  // logging socket aborts during terminal reconnects or page refreshes.
+  if (import.meta.env.DEV) {
+    return `${protocol}://${window.location.hostname}:3001/ws/terminal`;
+  }
+
   return `${protocol}://${window.location.host}/ws/terminal`;
 }
 
@@ -340,7 +375,9 @@ function formatConnectionLabel(connectionState) {
 
 const styles = {
   panel: {
-    minHeight: 720,
+    height: "100%",
+    minHeight: 0,
+    minWidth: 0,
     display: "flex",
     flexDirection: "column",
     gap: 16,
@@ -349,11 +386,13 @@ const styles = {
     background: "rgba(15, 23, 42, 0.92)",
     border: "1px solid rgba(148, 163, 184, 0.16)",
     boxShadow: "0 18px 40px rgba(0, 0, 0, 0.25)",
+    overflow: "hidden",
   },
   header: {
     display: "flex",
     flexDirection: "column",
     gap: 6,
+    flexShrink: 0,
   },
   eyebrow: {
     color: "#8fb3ff",
@@ -373,10 +412,12 @@ const styles = {
     lineHeight: 1.6,
   },
   card: {
+    minWidth: 0,
     background: "#111c34",
     border: "1px solid #223250",
     borderRadius: 14,
     padding: 16,
+    flexShrink: 0,
   },
   cardHeader: {
     display: "flex",
@@ -427,10 +468,12 @@ const styles = {
     cursor: enabled ? "pointer" : "not-allowed",
   }),
   terminalCard: {
-    flex: 1,
+    flex: "1 1 0",
     display: "flex",
     flexDirection: "column",
     minHeight: 0,
+    minWidth: 0,
+    width: "100%",
     background: "#111c34",
     border: "1px solid #223250",
     borderRadius: 14,
@@ -441,6 +484,7 @@ const styles = {
     justifyContent: "space-between",
     alignItems: "center",
     gap: 12,
+    minWidth: 0,
     padding: "12px 14px",
     borderBottom: "1px solid #223250",
     background: "rgba(8, 17, 31, 0.85)",
@@ -448,19 +492,28 @@ const styles = {
   toolbarTitle: {
     fontSize: 14,
     fontWeight: 700,
+    flexShrink: 0,
   },
   toolbarHint: {
+    flex: 1,
+    minWidth: 0,
     color: "#7d92b3",
     fontSize: 12,
     whiteSpace: "nowrap",
     overflow: "hidden",
     textOverflow: "ellipsis",
+    textAlign: "right",
   },
   terminalViewport: {
-    flex: 1,
-    minHeight: 420,
+    flex: "1 1 0",
+    minHeight: 0,
+    minWidth: 0,
+    height: 0,
+    width: "100%",
+    maxWidth: "100%",
     padding: "12px 10px",
     background: "#08111f",
+    overflow: "hidden",
   },
   footer: {
     display: "flex",
@@ -469,6 +522,7 @@ const styles = {
     gap: 12,
     color: "#94a3b8",
     fontSize: 12,
+    flexShrink: 0,
   },
   footerChip: (connectionState) => ({
     padding: "6px 10px",
@@ -492,6 +546,7 @@ const styles = {
     fontWeight: 700,
   }),
   footerText: {
+    minWidth: 0,
     textAlign: "right",
   },
 };

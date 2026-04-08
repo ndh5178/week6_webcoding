@@ -103,13 +103,17 @@ function formatConnectionLabel(connectionState) {
 
 const styles = {
   page: {
+    height: "100vh",
     minHeight: "100vh",
+    display: "flex",
+    flexDirection: "column",
     padding: "24px",
     background:
       "radial-gradient(circle at top left, rgba(58, 123, 213, 0.18), transparent 28%), #0a1020",
     color: "#f8fafc",
     fontFamily:
       '"Pretendard Variable", "Pretendard", "Noto Sans KR", system-ui, sans-serif',
+    overflow: "hidden",
   },
   hero: {
     display: "flex",
@@ -117,6 +121,7 @@ const styles = {
     gap: "24px",
     alignItems: "flex-start",
     marginBottom: "20px",
+    flexShrink: 0,
   },
   heroMeta: {
     maxWidth: "520px",
@@ -167,9 +172,13 @@ const styles = {
     fontWeight: 700,
   }),
   grid: {
+    flex: 1,
     display: "grid",
-    gridTemplateColumns: "1fr 1fr 1fr",
+    gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
     gap: "16px",
     alignItems: "stretch",
+    minWidth: 0,
+    minHeight: 0,
+    overflow: "hidden",
   },
 };
