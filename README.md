@@ -12,7 +12,7 @@
 ```
 
 ---
-
+![alt text](<mainpage.png>)
 ## Architecture
 
 ```
@@ -94,6 +94,49 @@
  - parseTree → 트리                                  name,mbti,hobby
  - rows → 매칭 결과                                  Kim,ENFP,travel
  - message → 상태                                    Lee,ISFJ,reading
+```
+
+---
+
+## Core Logic: SQL Parsing Flow
+
+```
+INSERT INTO profiles VALUES ('김규태', 'INFP', '독서');
+
+  ┌─────────┐     ┌──────────┐     ┌────────────┐     ┌───────────┐
+  │ main.c  │ ──→ │ parser.c │ ──→ │ executor.c │ ──→ │ storage.c │
+  │  입력    │     │  SQL 분석  │     │   실행      │     │  CSV 저장  │
+  └─────────┘     └──────────┘     └────────────┘     └───────────┘
+       │                │                  │                  │
+       ▼                ▼                  ▼                  ▼
+  "INSERT INTO    Statement 구조체       schema.c에서      profiles.csv에
+   profiles       {                     profiles 테이블    한 줄 추가:
+   VALUES(...);"    type: INSERT        스키마 확인        김규태,INFP,독서
+                    table: profiles
+                    values: [김규태,
+                      INFP, 독서]
+                  }
+```
+
+```
+SELECT * FROM profiles WHERE mbti = 'INFP';
+
+  ┌─────────┐     ┌──────────┐     ┌────────────┐     ┌───────────┐
+  │ main.c  │ ──→ │ parser.c │ ──→ │ executor.c │ ──→ │ storage.c │
+  │  입력    │     │  SQL 분석  │     │   실행      │     │  CSV 조회  │
+  └─────────┘     └──────────┘     └────────────┘     └───────────┘
+       │                │                  │                  │
+       ▼                ▼                  ▼                  ▼
+  "SELECT *        Statement 구조체     schema.c에서      profiles.csv
+   FROM profiles   {                   컬럼 검증         한 줄씩 읽으며
+   WHERE            type: SELECT                        mbti = 'INFP'
+   mbti='INFP';"    table: profiles                     매칭되는 행만
+                    select_all: true                    결과로 반환
+                    where: {
+                      column: mbti       stdout 출력:
+                      value: INFP        (김규태, INFP, 독서)
+                    }                    Executed.
+                  }
 ```
 
 ---
@@ -194,18 +237,6 @@ week6_webcoding/
 ```
 
 ---
-
-## Team
-
-| 역할 | 이름 | 담당 |
-|------|------|------|
-| A | 세민 | CLI Panel (xterm + WebSocket) |
-| B | 규민 | Parse Tree (ReactFlow) |
-| C | 규태 | Date Match App (서비스 UI) |
-| D | 동현 | 통합 + Backend + C Engine |
-
----
-
 ## API Contract
 
 ```
@@ -222,19 +253,37 @@ Response: {
 ```
 
 ---
+## Team
 
-## Database Schema
+| 역할 | 이름 | 담당 |
+|------|------|------|
+| A | 세민 | CLI Panel (xterm + WebSocket) |
+| B | 규민 | Parse Tree (ReactFlow) |
+| C | 규태 | Date Match App (서비스 UI) |
+| D | 동현 | 통합 + Backend + C Engine |
 
-```
-┌─────────────────────────────────┐
-│         profiles 테이블          │
-├──────────┬──────────┬───────────┤
-│  name    │  mbti    │  hobby    │
-├──────────┼──────────┼───────────┤
-│  김규태   │  INFP    │  독서     │
-│  김규민   │  ENFJ    │  요리     │
-│  남동현   │  INFP    │  실뜨기   │
-│  김세민   │  ENTP    │  곤충채집  │
-│  ...     │  ...     │  ...      │
-└──────────┴──────────┴───────────┘
-```
+---
+## 문제점
+
+<b>*규민*</b>: Parse Tree를 처음에는 컴포넌트로 직접 트리 노드를 구현했는데
+ReactFlow 라이브러리를 도입하면서 훨씬 간편하게 개발할 수 있었습니다.
+적절한 라이브러리 선택이 개발 효율을 크게 높인다는 걸 알게 되었습니다.
+
+<b>*세민*</b>: CLI 패널을 만들 때 처음에는 input 태그로 명령어를 받는 방식이었는데,
+이러면 진짜 터미널처럼 보이지 않는 문제가 있었습니다.
+그래서 xterm.js 라이브러리를 도입해서
+실제 shell 프로세스를 연결하고
+브라우저 안에서 진짜 터미널을 띄우는 방식으로 해결했습니다.
+
+<b>*규태*</b>: 서비스 패널을 만들 때 처음에는 단독 페이지로 개발했는데
+3패널 통합 화면에 넣으니 레이아웃이 깨지는 문제가 있었습니다.
+패널 크기에 맞게 스타일을 전부 다시 조정해야 했고
+독립적으로 만든 컴포넌트를 통합 환경에 맞추는 과정이 생각보다 까다로웠습니다.
+
+<b>*동현*</b>: 통합 과정에서 브랜치 전략이 미흡해서
+병합할 때 충돌이 많이 발생했고
+충돌을 해결하는 과정에서 기능이 상당 부분 날아갔습니다.
+결국 전부 초기화하고 처음부터 다시 통합했습니다.
+이 경험을 통해 브랜치 전략과 충돌 관리의 중요성을 체감했습니다.
+
+---
