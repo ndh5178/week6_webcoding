@@ -1,31 +1,19 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 const MBTI_TYPES = [
-  "ISTJ","ISFJ","INFJ","INTJ",
-  "ISTP","ISFP","INFP","INTP",
-  "ESTP","ESFP","ENFP","ENTP",
-  "ESTJ","ESFJ","ENFJ","ENTJ",
-];
-
-const MOCK_PEOPLE = [
-  { id: 1, name: "민수", mbti: "INFP", hobby: "reading", comment: "같이 카페에서 책 읽어요." },
-  { id: 2, name: "서연", mbti: "ENFJ", hobby: "cooking", comment: "맛있는 거 같이 먹으러 가요." },
-  { id: 3, name: "지훈", mbti: "INFP", hobby: "game", comment: "롤 한 판 하실래요?" },
-  { id: 4, name: "수지", mbti: "ENTP", hobby: "travel", comment: "다음 주말에 같이 떠나요?" },
-  { id: 5, name: "우진", mbti: "ISTJ", hobby: "movie", comment: "조용한 영화관 데이트 좋아해요." },
-  { id: 6, name: "소연", mbti: "ENFP", hobby: "music", comment: "같이 페스티벌 가요." },
-  { id: 7, name: "현우", mbti: "INTP", hobby: "reading", comment: "SF 소설 좋아하시나요?" },
-  { id: 8, name: "도윤", mbti: "ESFJ", hobby: "cooking", comment: "브런치 카페 투어 어때요?" },
+  "ISTJ", "ISFJ", "INFJ", "INTJ",
+  "ISTP", "ISFP", "INFP", "INTP",
+  "ESTP", "ESFP", "ENFP", "ENTP",
+  "ESTJ", "ESFJ", "ENFJ", "ENTJ",
 ];
 
 const HOBBY_EMOJIS = {
-  reading: "📚",
-  cooking: "🍳",
-  game: "🎮",
-  travel: "✈️",
-  movie: "🎬",
-  music: "🎵",
-  photo: "📷",
+  독서: "📚",
+  요리: "🍳",
+  게임: "🎮",
+  여행: "✈️",
+  운동: "🏃",
+  음악: "🎵",
 };
 
 const AVATAR_COLORS = [
@@ -37,39 +25,168 @@ const AVATAR_COLORS = [
   "linear-gradient(135deg, #ec4899, #f43f5e)",
 ];
 
+function escapeSqlValue(value) {
+  return String(value).replace(/'/g, "''");
+}
+
+function buildComment(person, target, score) {
+  if (score === 100) {
+    return `${target.name}님과 MBTI와 취미가 모두 완벽하게 맞아요.`;
+  }
+
+  if (person.hobby === target.hobby) {
+    return `둘 다 ${person.hobby}를 좋아해서 대화가 바로 이어질 수 있어요.`;
+  }
+
+  if (score >= 60) {
+    return "성향 코드가 꽤 비슷해서 편안하게 가까워질 가능성이 높아요.";
+  }
+
+  return "공통점은 적지만 의외의 케미를 기대해볼 만한 조합이에요.";
+}
+
 function calculateScore(person, target) {
   let score = 0;
-  for (let i = 0; i < 4; i++) {
-    if (person.mbti[i] === target.mbti[i]) score += 20;
+
+  for (let index = 0; index < 4; index += 1) {
+    if (person.mbti[index] === target.mbti[index]) {
+      score += 20;
+    }
   }
-  if (person.hobby === target.hobby) score += 20;
+
+  if (person.hobby === target.hobby) {
+    score += 20;
+  }
+
   return Math.min(score, 100);
+}
+
+function normalizeProfiles(rows) {
+  if (!Array.isArray(rows)) {
+    return [];
+  }
+
+  return rows
+    .filter((row) => row && typeof row === "object")
+    .map((row, index) => ({
+      id: `${row.name ?? "profile"}-${index}`,
+      name: String(row.name ?? "").trim(),
+      mbti: String(row.mbti ?? "").trim().toUpperCase(),
+      hobby: String(row.hobby ?? "").trim(),
+    }))
+    .filter((row) => row.name && row.mbti && row.hobby);
+}
+
+async function runQuery(query) {
+  const response = await fetch("/api/query", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ query }),
+  });
+
+  const payload = await response.json();
+
+  if (!response.ok || payload.success === false) {
+    throw new Error(payload.message || "SQL 실행에 실패했습니다.");
+  }
+
+  return payload;
 }
 
 export default function DateMatchApp() {
   const [form, setForm] = useState({ name: "", mbti: "", hobby: "" });
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [results, setResults] = useState(null);
-  const [submitted, setSubmitted] = useState(false);
+  const [profiles, setProfiles] = useState([]);
+  const [error, setError] = useState("");
 
-  function handleSubmit(e) {
-    e.preventDefault();
-    if (!form.name.trim() || !form.mbti || !form.hobby.trim()) return;
+  useEffect(() => {
+    let cancelled = false;
 
-    setLoading(true);
-    setResults(null);
-    setSubmitted(true);
+    async function loadProfiles() {
+      try {
+        setLoading(true);
+        setError("");
 
-    setTimeout(() => {
-      const target = { name: form.name, mbti: form.mbti, hobby: form.hobby };
-      const matched = MOCK_PEOPLE
-        .map((p) => ({ ...p, score: calculateScore(p, target) }))
-        .sort((a, b) => b.score - a.score)
+        const payload = await runQuery("SELECT * FROM profiles;");
+        if (!cancelled) {
+          setProfiles(normalizeProfiles(payload.rows));
+        }
+      } catch (loadError) {
+        if (!cancelled) {
+          setError(loadError.message || "프로필 목록을 불러오지 못했습니다.");
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    }
+
+    loadProfiles();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function handleSubmit(event) {
+    event.preventDefault();
+
+    const name = form.name.trim();
+    const mbti = form.mbti.trim().toUpperCase();
+    const hobby = form.hobby.trim();
+
+    if (!name || !mbti || !hobby) {
+      return;
+    }
+
+    const target = { name, mbti, hobby };
+    const insertQuery = `INSERT INTO profiles VALUES ('${escapeSqlValue(name)}', '${escapeSqlValue(
+      mbti,
+    )}', '${escapeSqlValue(hobby)}');`;
+
+    try {
+      setLoading(true);
+      setError("");
+
+      await runQuery(insertQuery);
+
+      const payload = await runQuery("SELECT * FROM profiles;");
+      const nextProfiles = normalizeProfiles(payload.rows);
+      setProfiles(nextProfiles);
+
+      const targetIndex = nextProfiles.findLastIndex(
+        (person) =>
+          person.name === target.name &&
+          person.mbti === target.mbti &&
+          person.hobby === target.hobby,
+      );
+
+      const matched = nextProfiles
+        .filter((_, index) => index !== targetIndex)
+        .map((person) => {
+          const score = calculateScore(person, target);
+          return {
+            ...person,
+            score,
+            comment: buildComment(person, target, score),
+          };
+        })
+        .sort((left, right) => right.score - left.score)
         .slice(0, 3);
+
       setResults({ target, matched });
+    } catch (submitError) {
+      setError(submitError.message || "프로필 저장 또는 매칭 계산에 실패했습니다.");
+    } finally {
       setLoading(false);
-    }, 1500);
+    }
   }
+
+  const isButtonDisabled = !form.name.trim() || !form.mbti || !form.hobby.trim() || loading;
 
   return (
     <section style={S.panel}>
@@ -77,7 +194,13 @@ export default function DateMatchApp() {
         <div>
           <p style={S.eyebrow}>PANEL 3</p>
           <h2 style={S.title}>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" style={{ verticalAlign: "middle", marginRight: 6 }}>
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              style={{ verticalAlign: "middle", marginRight: 6 }}
+            >
               <path
                 d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5
                    2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09
@@ -106,32 +229,42 @@ export default function DateMatchApp() {
               type="text"
               placeholder="이름"
               value={form.name}
-              onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+              onChange={(event) =>
+                setForm((current) => ({ ...current, name: event.target.value }))
+              }
             />
             <select
               style={S.select}
               value={form.mbti}
-              onChange={(e) => setForm((f) => ({ ...f, mbti: e.target.value }))}
+              onChange={(event) =>
+                setForm((current) => ({ ...current, mbti: event.target.value }))
+              }
             >
-              <option value="" disabled>MBTI 선택</option>
-              {MBTI_TYPES.map((t) => (
-                <option key={t} value={t}>{t}</option>
+              <option value="" disabled>
+                MBTI 선택
+              </option>
+              {MBTI_TYPES.map((type) => (
+                <option key={type} value={type}>
+                  {type}
+                </option>
               ))}
             </select>
             <input
               style={S.input}
               type="text"
-              placeholder="취미 (예: reading, travel...)"
+              placeholder="취미 (예: 독서, 여행...)"
               value={form.hobby}
-              onChange={(e) => setForm((f) => ({ ...f, hobby: e.target.value }))}
+              onChange={(event) =>
+                setForm((current) => ({ ...current, hobby: event.target.value }))
+              }
             />
             <button
               type="submit"
               style={{
                 ...S.submitBtn,
-                opacity: !form.name.trim() || !form.mbti || !form.hobby.trim() ? 0.5 : 1,
+                opacity: isButtonDisabled ? 0.5 : 1,
               }}
-              disabled={loading || !form.name.trim() || !form.mbti || !form.hobby.trim()}
+              disabled={isButtonDisabled}
             >
               {loading ? (
                 <span style={S.loadingWrap}>
@@ -145,64 +278,112 @@ export default function DateMatchApp() {
           </form>
         </div>
 
-        {loading && (
+        {error ? <div style={S.errorBox}>{error}</div> : null}
+
+        {loading && !results ? (
           <div style={S.loadingSection}>
             <div style={S.loadingHeart}>&#x2764;&#xFE0F;</div>
-            <p style={S.loadingText}>매칭 중..</p>
+            <p style={S.loadingText}>저장된 프로필을 불러오는 중입니다.</p>
           </div>
-        )}
+        ) : null}
 
-        {results && !loading && (
+        {results ? (
           <div style={S.resultsSection}>
             <div style={S.resultsBanner}>
-              <p style={S.resultsTitle}>
-                {results.target.name}님의 매칭 결과
-              </p>
+              <p style={S.resultsTitle}>{results.target.name}님의 매칭 결과</p>
               <p style={S.resultsSub}>
                 {results.target.mbti} &middot; {results.target.hobby}
               </p>
             </div>
 
-            {results.matched.map((person, idx) => (
-              <div key={person.id} style={S.matchCard}>
-                {idx === 0 && <div style={S.bestBadge}>BEST</div>}
-                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                  <div
-                    style={{
-                      ...S.avatar,
-                      background: AVATAR_COLORS[person.id % AVATAR_COLORS.length],
-                    }}
-                  >
-                    {person.name[0]}
+            {results.matched.length === 0 ? (
+              <div style={S.emptyState}>
+                <div style={S.emptyHeart}>💌</div>
+                <p style={S.emptyText}>아직 비교할 다른 프로필이 부족합니다.</p>
+              </div>
+            ) : (
+              results.matched.map((person, index) => (
+                <div
+                  key={`${person.name}-${person.mbti}-${person.hobby}-${index}`}
+                  style={S.matchCard}
+                >
+                  {index === 0 ? <div style={S.bestBadge}>BEST</div> : null}
+                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <div
+                      style={{
+                        ...S.avatar,
+                        background: AVATAR_COLORS[index % AVATAR_COLORS.length],
+                      }}
+                    >
+                      {person.name[0]}
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <p style={S.matchName}>{person.name}</p>
+                      <div style={S.matchInfo}>
+                        <span style={S.mbtiTag}>{person.mbti}</span>
+                        <span style={S.hobbyTag}>
+                          {HOBBY_EMOJIS[person.hobby] || "✨"} {person.hobby}
+                        </span>
+                      </div>
+                    </div>
                   </div>
-                  <div style={{ flex: 1 }}>
-                    <p style={S.matchName}>{person.name}</p>
-                    <div style={S.matchInfo}>
-                      <span style={S.mbtiTag}>{person.mbti}</span>
-                      <span style={S.hobbyTag}>
-                        {HOBBY_EMOJIS[person.hobby] || "✨"} {person.hobby}
-                      </span>
+                  <div style={S.scoreSection}>
+                    <div style={S.scoreLabel}>
+                      매칭률 <strong>{person.score}%</strong>
+                    </div>
+                    <div style={S.scoreBarBg}>
+                      <div style={{ ...S.scoreBarFill, width: `${person.score}%` }} />
+                    </div>
+                  </div>
+                  <p style={S.matchComment}>{person.comment}</p>
+                </div>
+              ))
+            )}
+          </div>
+        ) : (
+          <div style={S.resultsSection}>
+            <div style={S.resultsBanner}>
+              <p style={S.resultsTitle}>저장된 사람들</p>
+              <p style={S.resultsSub}>
+                초기 상태에서는 `SELECT * FROM profiles;` 결과를 보여줍니다.
+              </p>
+            </div>
+
+            {profiles.length === 0 ? (
+              <div style={S.emptyState}>
+                <div style={S.emptyHeart}>💗</div>
+                <p style={S.emptyText}>
+                  아직 저장된 프로필이 없습니다. 먼저 한 명을 등록해보세요.
+                </p>
+              </div>
+            ) : (
+              profiles.map((person, index) => (
+                <div
+                  key={`${person.name}-${person.mbti}-${person.hobby}-${index}`}
+                  style={S.matchCard}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <div
+                      style={{
+                        ...S.avatar,
+                        background: AVATAR_COLORS[index % AVATAR_COLORS.length],
+                      }}
+                    >
+                      {person.name[0]}
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <p style={S.matchName}>{person.name}</p>
+                      <div style={S.matchInfo}>
+                        <span style={S.mbtiTag}>{person.mbti}</span>
+                        <span style={S.hobbyTag}>
+                          {HOBBY_EMOJIS[person.hobby] || "✨"} {person.hobby}
+                        </span>
+                      </div>
                     </div>
                   </div>
                 </div>
-                <div style={S.scoreSection}>
-                  <div style={S.scoreLabel}>
-                    매칭률 <strong>{person.score}%</strong>
-                  </div>
-                  <div style={S.scoreBarBg}>
-                    <div style={{ ...S.scoreBarFill, width: `${person.score}%` }} />
-                  </div>
-                </div>
-                <p style={S.matchComment}>"{person.comment}"</p>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {!submitted && !loading && (
-          <div style={S.emptyState}>
-            <div style={S.emptyHeart}>&#x1F498;</div>
-            <p style={S.emptyText}>프로필을 입력하고<br />매칭 버튼을 눌러보세요.</p>
+              ))
+            )}
           </div>
         )}
       </div>
@@ -339,6 +520,13 @@ const S = {
     fontSize: 13,
     color: "#94a3b8",
   },
+  errorBox: {
+    padding: "14px",
+    borderRadius: "14px",
+    background: "rgba(127, 29, 29, 0.45)",
+    border: "1px solid rgba(248, 113, 113, 0.28)",
+    color: "#fecaca",
+  },
   resultsSection: {
     display: "flex",
     flexDirection: "column",
@@ -400,6 +588,7 @@ const S = {
     display: "flex",
     gap: 6,
     marginTop: 4,
+    flexWrap: "wrap",
   },
   mbtiTag: {
     padding: "2px 8px",
@@ -440,7 +629,7 @@ const S = {
     margin: "8px 0 0",
     fontSize: 12,
     color: "#94a3b8",
-    fontStyle: "italic",
+    lineHeight: 1.6,
   },
   emptyState: {
     flex: 1,
