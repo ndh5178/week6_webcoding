@@ -196,6 +196,7 @@ wss.on("connection", (socket) => {
       engineReady = true;
       shellFallbackArmed = false;
       inputBuffer = "";
+      promptBuffer = ENGINE_PROMPT;
 
       send(socket, {
         type: "session-status",
@@ -240,6 +241,7 @@ wss.on("connection", (socket) => {
 
     engineReady = false;
     shellFallbackArmed = false;
+    promptBuffer = "";
 
     send(socket, {
       type: "session-status",
@@ -346,6 +348,7 @@ wss.on("connection", (socket) => {
     engineReady = false;
     shellFallbackArmed = false;
     inputBuffer = "";
+    promptBuffer = "";
 
     send(socket, {
       type: "session-status",
@@ -404,8 +407,8 @@ function getLatestPrompt(buffer) {
 function getLastShellPromptIndex(buffer) {
   const regex =
     process.platform === "win32"
-      ? /(?:^|\n)PS [^\r\n]*>/g
-      : /(?:^|\n)[^\r\n]*[$#]/g;
+      ? /(?:^|\n)PS [^\r\n]*>\s*(?=\r?\n|$)/g
+      : /(?:^|\n)[^\r\n]*[%$#]\s*(?=\r?\n|$)/g;
 
   let match;
   let lastIndex = -1;
