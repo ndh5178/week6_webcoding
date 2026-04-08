@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import CliPanel from "./components/CliPanel";
 import ParseTreePanel from "./components/ParseTreePanel";
@@ -7,6 +7,25 @@ import ServicePanel from "./components/ServicePanel";
 const DEFAULT_QUERY = "SELECT * FROM comments;";
 const DEFAULT_MESSAGE =
   "왼쪽 CLI에서 SQL을 실행하면 파싱 트리와 서비스 패널이 함께 갱신됩니다.";
+const DISCUSSION_TOPIC = "구현이 먼저인가, 학습이 먼저인가";
+const DEFAULT_AUTHOR = "guest";
+
+async function requestQuery(query) {
+  const response = await fetch("/api/query", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ query }),
+  });
+
+  const payload = await response.json();
+  return { response, payload };
+}
+
+function escapeSqlValue(value) {
+  return String(value ?? "").replace(/'/g, "''");
+}
 
 export default function App() {
   const [query, setQuery] = useState(DEFAULT_QUERY);
@@ -17,7 +36,14 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  async function handleRun(nextQuery) {
+  function applyPayload(payload, fallbackMessage) {
+    setParseTree(payload.parseTree ?? null);
+    setRows(payload.rows ?? []);
+    setQueryType(payload.queryType ?? "");
+    setMessage(payload.message ?? fallbackMessage);
+  }
+
+  async function runQuery(nextQuery, fallbackMessage = "Executed.") {
     const trimmedQuery = String(nextQuery ?? "").trim();
 
     setQuery(trimmedQuery);
@@ -28,46 +54,66 @@ export default function App() {
       setParseTree(null);
       setRows([]);
       setQueryType("");
-      return;
+      return { success: false };
     }
 
     setLoading(true);
     setError("");
 
     try {
-      const response = await fetch("/api/query", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ query: trimmedQuery }),
-      });
-
-      const payload = await response.json();
+      const { response, payload } = await requestQuery(trimmedQuery);
 
       if (!response.ok || payload.success === false) {
-        setParseTree(payload.parseTree ?? null);
-        setRows(payload.rows ?? []);
-        setQueryType(payload.queryType ?? "");
-        setMessage(payload.message ?? "쿼리 실행에 실패했습니다.");
+        applyPayload(payload, "쿼리 실행에 실패했습니다.");
         setError(payload.message ?? "쿼리 실행에 실패했습니다.");
-        return;
+        return { success: false, payload };
       }
 
-      setParseTree(payload.parseTree ?? null);
-      setRows(payload.rows ?? []);
-      setQueryType(payload.queryType ?? "");
-      setMessage(payload.message ?? "Executed.");
+      applyPayload(payload, fallbackMessage);
+      return { success: true, payload };
     } catch (fetchError) {
       setParseTree(null);
       setRows([]);
       setQueryType("");
       setMessage("백엔드 연결에 실패했습니다.");
       setError(fetchError.message || "백엔드 연결에 실패했습니다.");
+      return { success: false };
     } finally {
       setLoading(false);
     }
   }
+
+  async function handleRun(nextQuery) {
+    await runQuery(nextQuery);
+  }
+
+  async function handleSubmitComment(commentText) {
+    const trimmedComment = String(commentText ?? "").trim();
+
+    if (!trimmedComment) {
+      setError("댓글 내용을 입력해주세요.");
+      return false;
+    }
+
+    const numericIds = rows
+      .map((row) => Number(row.id))
+      .filter((value) => Number.isFinite(value));
+    const nextId = numericIds.length > 0 ? Math.max(...numericIds) + 1 : 1;
+    const insertQuery =
+      `INSERT INTO comments VALUES (${nextId}, '${escapeSqlValue(DEFAULT_AUTHOR)}', '${escapeSqlValue(trimmedComment)}');`;
+
+    const insertResult = await runQuery(insertQuery, "댓글이 등록되었습니다.");
+    if (!insertResult.success) {
+      return false;
+    }
+
+    const selectResult = await runQuery(DEFAULT_QUERY, "댓글 목록을 다시 불러왔습니다.");
+    return selectResult.success;
+  }
+
+  useEffect(() => {
+    void runQuery(DEFAULT_QUERY, "토론 댓글을 불러왔습니다.");
+  }, []);
 
   return (
     <main style={styles.page}>
@@ -77,8 +123,8 @@ export default function App() {
           <h1 style={styles.title}>Cupid SQL Integration Page</h1>
         </div>
         <p style={styles.subtitle}>
-          `semin` 브랜치의 CLI 입력 화면과 `gyugo` 브랜치의 Parse Tree
-          시각화를 현재 통합 페이지에 연결했습니다.
+          1번 패널 입력, 2번 패널 파싱 트리, 3번 패널 서비스 UI가 모두 같은 SQL
+          엔진 결과를 사용합니다.
         </p>
       </section>
 
@@ -86,11 +132,14 @@ export default function App() {
         <CliPanel initialQuery={query} isRunning={loading} onRun={handleRun} />
         <ParseTreePanel parseTree={parseTree} />
         <ServicePanel
+          topic={DISCUSSION_TOPIC}
+          authorLabel={DEFAULT_AUTHOR}
           rows={rows}
           queryType={queryType}
           message={message}
           loading={loading}
           error={error}
+          onSubmitComment={handleSubmitComment}
         />
       </section>
     </main>

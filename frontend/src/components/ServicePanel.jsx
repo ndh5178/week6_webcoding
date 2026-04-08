@@ -1,12 +1,11 @@
+import { useMemo, useState } from "react";
+
 function buildInitials(name) {
   if (!name) {
     return "??";
   }
 
-  return String(name)
-    .trim()
-    .slice(0, 2)
-    .toUpperCase();
+  return String(name).trim().slice(0, 2).toUpperCase();
 }
 
 function normalizeComments(rows) {
@@ -19,28 +18,46 @@ function normalizeComments(rows) {
 
 function buildHelperText(queryType, rows) {
   if (queryType === "INSERT") {
-    return "댓글이 SQL 엔진을 통해 저장되었습니다. 댓글 목록을 보려면 SELECT 쿼리를 실행하세요.";
+    return "댓글이 SQL 엔진을 통해 저장되었습니다. 방금 등록한 내용이 아래 목록에 반영됩니다.";
   }
 
   if (queryType === "SELECT") {
     return rows.length > 0
-      ? "조회한 댓글 목록이 서비스 패널에 동기화되었습니다."
-      : "조회는 성공했지만 아직 댓글이 없습니다.";
+      ? "토론 댓글 목록이 SQL 엔진 조회 결과와 동기화되어 있습니다."
+      : "아직 댓글이 없습니다. 첫 댓글을 등록해보세요.";
   }
 
-  return "오른쪽 패널은 실제 서비스 화면처럼 보이지만, 데이터는 왼쪽 SQL 엔진 결과를 사용합니다.";
+  return "이 패널은 서비스 화면처럼 보이지만 실제 데이터는 SQL 엔진 결과를 사용합니다.";
 }
 
 export default function ServicePanel({
+  topic,
+  authorLabel = "guest",
   rows = [],
   queryType = "",
   message = "",
   loading = false,
   error = "",
+  onSubmitComment,
 }) {
-  const comments = normalizeComments(rows);
-  const latestComment = comments.length > 0 ? comments[comments.length - 1] : null;
+  const comments = useMemo(() => normalizeComments(rows), [rows]);
+  const latestComment =
+    comments.length > 0 ? comments[comments.length - 1] : null;
   const helperText = buildHelperText(queryType, comments);
+  const [draft, setDraft] = useState("");
+
+  async function handleSubmit(event) {
+    event.preventDefault();
+
+    if (!draft.trim() || typeof onSubmitComment !== "function" || loading) {
+      return;
+    }
+
+    const success = await onSubmitComment(draft);
+    if (success) {
+      setDraft("");
+    }
+  }
 
   return (
     <section style={styles.panel}>
@@ -49,44 +66,70 @@ export default function ServicePanel({
           <p style={styles.eyebrow}>PANEL 3</p>
           <h2 style={styles.title}>Service</h2>
         </div>
-        <span style={styles.count}>{comments.length} rows</span>
+        <span style={styles.count}>{comments.length} comments</span>
       </header>
 
       <div style={styles.serviceShell}>
         <div style={styles.serviceTopBar}>
           <div>
-            <p style={styles.serviceLabel}>서비스 미리보기</p>
-            <h3 style={styles.serviceTitle}>수제</h3>
+            <p style={styles.serviceLabel}>토론 주제</p>
+            <h3 style={styles.serviceTitle}>{topic}</h3>
           </div>
-          <button type="button" style={styles.menuButton}>⋯</button>
+          <div style={styles.topicBadge}>LIVE</div>
+        </div>
+
+        <div style={styles.topicSummary}>
+          <p style={styles.topicSummaryLabel}>오늘의 질문</p>
+          <p style={styles.topicSummaryText}>
+            의견을 남기면 SQL 엔진에 댓글이 저장되고, 다시 조회한 결과가 아래
+            댓글 목록에 그대로 반영됩니다.
+          </p>
         </div>
 
         <div style={styles.composerCard}>
-          <p style={styles.sectionLabel}>댓글 입력</p>
-          <div style={styles.composerBox}>
+          <div style={styles.composerHeader}>
+            <div>
+              <p style={styles.sectionLabel}>댓글 입력</p>
+              <p style={styles.authorMeta}>작성자: {authorLabel}</p>
+            </div>
+            <span style={styles.helperChip}>{queryType || "대기 중"}</span>
+          </div>
+
+          <form onSubmit={handleSubmit} style={styles.composerBox}>
             <textarea
               style={styles.composerTextarea}
-              value=""
-              readOnly
-              placeholder="사용자는 여기서 그냥 댓글만 입력합니다. 실제 저장은 왼쪽 SQL 엔진 결과와 연결됩니다."
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+              placeholder="토론 주제에 대한 의견을 입력하세요."
+              disabled={loading}
             />
             <div style={styles.composerFooter}>
               <span style={styles.helper}>{helperText}</span>
-              <button type="button" style={styles.submitButton} disabled>
-                댓글 등록
+              <button
+                type="submit"
+                style={styles.submitButton(loading, draft.trim())}
+                disabled={loading || !draft.trim()}
+              >
+                {loading ? "등록 중..." : "댓글 등록"}
               </button>
             </div>
-          </div>
+          </form>
         </div>
 
         <div style={styles.threadCard}>
           <div style={styles.threadHeader}>
             <div>
               <p style={styles.sectionLabel}>댓글 목록</p>
-              <p style={styles.threadHint}>실제 표시 데이터는 SELECT 결과에서 옵니다.</p>
+              <p style={styles.threadHint}>
+                INSERT 후 SELECT를 다시 실행해 서비스 목록을 갱신합니다.
+              </p>
             </div>
             <span style={styles.threadMeta}>
-              {loading ? "불러오는 중" : latestComment ? `최신 댓글 #${latestComment.id}` : "댓글 없음"}
+              {loading
+                ? "불러오는 중"
+                : latestComment
+                  ? `최신 댓글 #${latestComment.id}`
+                  : "댓글 없음"}
             </span>
           </div>
 
@@ -94,9 +137,10 @@ export default function ServicePanel({
             <div style={styles.errorBox}>{error}</div>
           ) : comments.length === 0 ? (
             <div style={styles.emptyState}>
-              <p style={styles.emptyTitle}>아직 표시할 댓글이 없습니다.</p>
+              <p style={styles.emptyTitle}>아직 등록된 댓글이 없습니다.</p>
               <p style={styles.emptyDescription}>
-                `INSERT`로 댓글을 저장한 뒤 `SELECT`를 실행하면 이 영역이 실제 서비스처럼 채워집니다.
+                위 입력창에서 댓글을 등록하면 SQL 엔진에 저장된 뒤 이 목록에 바로
+                반영됩니다.
               </p>
             </div>
           ) : (
@@ -112,7 +156,9 @@ export default function ServicePanel({
                       <strong style={styles.author}>{comment.author}</strong>
                       <span style={styles.commentId}>댓글 #{comment.id}</span>
                     </div>
-                    <p style={styles.content}>{comment.content || "(비어 있는 댓글)"}</p>
+                    <p style={styles.content}>
+                      {comment.content || "(비어 있는 댓글)"}
+                    </p>
                   </div>
                 </article>
               ))}
@@ -177,6 +223,7 @@ const styles = {
     display: "flex",
     justifyContent: "space-between",
     alignItems: "flex-start",
+    gap: "12px",
   },
   serviceLabel: {
     margin: 0,
@@ -188,17 +235,37 @@ const styles = {
   serviceTitle: {
     margin: "8px 0 0",
     fontSize: "28px",
+    lineHeight: 1.35,
     fontWeight: 800,
-  },
-  menuButton: {
-    width: "40px",
-    height: "40px",
-    borderRadius: "14px",
-    border: "1px solid rgba(148, 163, 184, 0.18)",
-    background: "rgba(15, 23, 42, 0.72)",
     color: "#f8fafc",
-    fontSize: "24px",
-    cursor: "default",
+  },
+  topicBadge: {
+    padding: "8px 12px",
+    borderRadius: "999px",
+    background: "rgba(251, 113, 133, 0.16)",
+    border: "1px solid rgba(251, 113, 133, 0.28)",
+    color: "#fecdd3",
+    fontSize: "12px",
+    fontWeight: 700,
+  },
+  topicSummary: {
+    borderRadius: "18px",
+    padding: "16px",
+    background: "rgba(15, 23, 42, 0.66)",
+    border: "1px solid rgba(148, 163, 184, 0.14)",
+  },
+  topicSummaryLabel: {
+    margin: 0,
+    color: "#fda4af",
+    fontSize: "12px",
+    fontWeight: 700,
+    letterSpacing: "0.08em",
+  },
+  topicSummaryText: {
+    margin: "8px 0 0",
+    color: "#e2e8f0",
+    lineHeight: 1.7,
+    fontSize: "14px",
   },
   composerCard: {
     borderRadius: "18px",
@@ -206,11 +273,30 @@ const styles = {
     background: "rgba(15, 23, 42, 0.66)",
     border: "1px solid rgba(148, 163, 184, 0.14)",
   },
+  composerHeader: {
+    display: "flex",
+    justifyContent: "space-between",
+    gap: "12px",
+    alignItems: "flex-start",
+  },
   sectionLabel: {
     margin: 0,
     color: "#cbd5e1",
     fontWeight: 700,
     fontSize: "14px",
+  },
+  authorMeta: {
+    margin: "6px 0 0",
+    color: "#94a3b8",
+    fontSize: "12px",
+  },
+  helperChip: {
+    padding: "6px 10px",
+    borderRadius: "999px",
+    background: "rgba(56, 189, 248, 0.18)",
+    color: "#bae6fd",
+    fontSize: "12px",
+    fontWeight: 700,
   },
   composerBox: {
     marginTop: "12px",
@@ -226,7 +312,7 @@ const styles = {
     border: "none",
     outline: "none",
     background: "transparent",
-    color: "#94a3b8",
+    color: "#f8fafc",
     lineHeight: 1.6,
     fontFamily:
       '"Pretendard Variable", "Pretendard", "Noto Sans KR", system-ui, sans-serif',
@@ -244,15 +330,16 @@ const styles = {
     fontSize: "12px",
     lineHeight: 1.5,
   },
-  submitButton: {
+  submitButton: (loading, hasDraft) => ({
     border: "none",
     borderRadius: "12px",
     padding: "10px 14px",
-    background: "rgba(56, 189, 248, 0.32)",
-    color: "#bae6fd",
+    background:
+      loading || !hasDraft ? "rgba(56, 189, 248, 0.18)" : "rgba(56, 189, 248, 0.82)",
+    color: loading || !hasDraft ? "#7dd3fc" : "#082f49",
     fontWeight: 700,
-    cursor: "not-allowed",
-  },
+    cursor: loading || !hasDraft ? "not-allowed" : "pointer",
+  }),
   threadCard: {
     flex: 1,
     display: "flex",
@@ -318,7 +405,9 @@ const styles = {
     gap: "12px",
     padding: "14px",
     borderRadius: "16px",
-    border: `1px solid ${isLatest ? "rgba(56, 189, 248, 0.28)" : "rgba(148, 163, 184, 0.14)"}`,
+    border: `1px solid ${
+      isLatest ? "rgba(56, 189, 248, 0.28)" : "rgba(148, 163, 184, 0.14)"
+    }`,
     background: isLatest ? "rgba(8, 47, 73, 0.38)" : "rgba(2, 6, 23, 0.56)",
   }),
   avatar: {
