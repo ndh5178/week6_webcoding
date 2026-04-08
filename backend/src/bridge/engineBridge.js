@@ -2,7 +2,15 @@ const fs = require("fs");
 const path = require("path");
 const os = require("os");
 const { spawn } = require("child_process");
-const pty = require("node-pty");
+let pty;
+try {
+  pty = require("node-pty");
+  // node-pty 동작 테스트
+  const testShell = pty.spawn(process.platform === "win32" ? "cmd.exe" : "echo", ["test"], { cols: 1, rows: 1 });
+  testShell.kill();
+} catch {
+  pty = require("@homebridge/node-pty-prebuilt-multiarch");
+}
 
 const PROJECT_ROOT = path.resolve(__dirname, "../../..");
 const ENGINE_FILENAME = process.platform === "win32" ? "sql-engine.exe" : "sql-engine";
