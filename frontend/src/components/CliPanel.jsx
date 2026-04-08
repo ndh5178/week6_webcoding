@@ -1,296 +1,237 @@
-import { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 
-const EXAMPLES = [
-  "INSERT INTO comments VALUES (1, 'kim', 'hello');",
-  "SELECT * FROM comments;",
-  "SELECT author, content FROM comments WHERE id = 1;",
+const DEFAULT_EXAMPLES = [
+  {
+    label: "INSERT 예제",
+    query: "INSERT INTO comments VALUES (1, 'kim', 'hello');",
+  },
+  {
+    label: "SELECT 전체",
+    query: "SELECT * FROM comments;",
+  },
+  {
+    label: "SELECT WHERE",
+    query: "SELECT author, content FROM comments WHERE author = 'kim';",
+  },
 ];
 
+const panelStyle = {
+  display: "flex",
+  flexDirection: "column",
+  gap: "16px",
+  height: "100%",
+  padding: "20px",
+  background: "#0f172a",
+  color: "#e5eefc",
+};
+
+const cardStyle = {
+  background: "#111c34",
+  border: "1px solid #223250",
+  borderRadius: "14px",
+  padding: "16px",
+};
+
+const buttonStyle = {
+  border: "1px solid #31486f",
+  background: "#16233f",
+  color: "#dbeafe",
+  borderRadius: "10px",
+  padding: "10px 12px",
+  fontSize: "13px",
+  fontWeight: 600,
+  cursor: "pointer",
+};
+
+function formatHistoryLabel(query, index) {
+  const singleLine = query.replace(/\s+/g, " ").trim();
+  if (singleLine.length <= 64) {
+    return `${index + 1}. ${singleLine}`;
+  }
+  return `${index + 1}. ${singleLine.slice(0, 61)}...`;
+}
+
 export default function CliPanel({
-  initialQuery = "",
-  loading = false,
-  message = "",
-  error = "",
   onRun,
+  isRunning = false,
+  examples = DEFAULT_EXAMPLES,
+  initialQuery = "",
 }) {
-  const [query, setQuery] = useState(initialQuery || EXAMPLES[0]);
+  const [query, setQuery] = useState(initialQuery);
   const [history, setHistory] = useState([]);
+  const isRunnable = typeof onRun === "function";
+
+  const normalizedExamples = useMemo(
+    () => (Array.isArray(examples) && examples.length > 0 ? examples : DEFAULT_EXAMPLES),
+    [examples],
+  );
 
   useEffect(() => {
-    if (typeof initialQuery === "string") {
-      setQuery(initialQuery);
-    }
+    setQuery(initialQuery || "");
   }, [initialQuery]);
 
-  const statusLabel = useMemo(() => {
-    if (loading) return "실행 중";
-    if (error) return "오류";
-    return "준비";
-  }, [loading, error]);
+  function submitQuery(nextQuery) {
+    const trimmed = nextQuery.trim();
 
-  function handleExampleClick(example) {
-    setQuery(example);
-  }
-
-  function handleSubmit() {
-    const trimmed = query.trim();
-    if (!trimmed || typeof onRun !== "function") {
+    if (!trimmed || !isRunnable || isRunning) {
       return;
     }
 
-    setHistory((prev) => [trimmed, ...prev.filter((item) => item !== trimmed)].slice(0, 5));
+    setHistory((prev) => {
+      const withoutDuplicate = prev.filter((item) => item !== trimmed);
+      return [trimmed, ...withoutDuplicate].slice(0, 8);
+    });
+
     onRun(trimmed);
   }
 
+  function handleSubmit(event) {
+    event.preventDefault();
+    submitQuery(query);
+  }
+
+  function handleExampleClick(exampleQuery) {
+    setQuery(exampleQuery);
+  }
+
+  function handleKeyDown(event) {
+    if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+      event.preventDefault();
+      submitQuery(query);
+    }
+  }
+
   return (
-    <section style={styles.panel}>
-      <header style={styles.header}>
-        <div>
-          <p style={styles.eyebrow}>PANEL 1</p>
-          <h2 style={styles.title}>CLI</h2>
-        </div>
-        <span style={styles.badge(statusLabel, error)}>{statusLabel}</span>
+    <section style={panelStyle}>
+      <header style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+        <span
+          style={{
+            color: "#8fb3ff",
+            fontSize: "12px",
+            fontWeight: 700,
+            letterSpacing: "0.08em",
+          }}
+        >
+          INPUT ENTRY
+        </span>
+        <h2 style={{ margin: 0, fontSize: "24px" }}>CLI Panel</h2>
+        <p style={{ margin: 0, color: "#93a7c4", fontSize: "14px", lineHeight: 1.6 }}>
+          SQL 입력을 받고 실행 요청만 부모로 전달합니다. 실제 실행과 결과 처리는 이
+          패널 밖에서 이루어집니다.
+        </p>
       </header>
 
-      <div style={styles.examples}>
-        {EXAMPLES.map((example) => (
+      <div style={cardStyle}>
+        <div style={{ marginBottom: "12px", fontSize: "14px", fontWeight: 700 }}>
+          예제 SQL
+        </div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "10px" }}>
+          {normalizedExamples.map((example) => (
+            <button
+              key={`${example.label}-${example.query}`}
+              type="button"
+              onClick={() => handleExampleClick(example.query)}
+              style={buttonStyle}
+            >
+              {example.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <form
+        onSubmit={handleSubmit}
+        style={{
+          ...cardStyle,
+          display: "flex",
+          flexDirection: "column",
+          gap: "14px",
+          flex: 1,
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div style={{ fontSize: "14px", fontWeight: 700 }}>SQL 입력</div>
+          <div style={{ color: "#7d92b3", fontSize: "12px" }}>Ctrl/Cmd + Enter로 실행</div>
+        </div>
+
+        <textarea
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder="예: SELECT * FROM comments;"
+          spellCheck={false}
+          style={{
+            width: "100%",
+            minHeight: "180px",
+            resize: "vertical",
+            borderRadius: "12px",
+            border: "1px solid #31486f",
+            background: "#08111f",
+            color: "#e5eefc",
+            padding: "14px",
+            fontSize: "14px",
+            lineHeight: 1.6,
+            fontFamily: "Consolas, 'JetBrains Mono', monospace",
+            outline: "none",
+            boxSizing: "border-box",
+          }}
+        />
+
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px" }}>
+          <div style={{ color: "#93a7c4", fontSize: "12px" }}>
+            공통 계약: <code>docs/contracts.md</code>
+            {!isRunnable ? " · 실행 핸들러 연결 대기 중" : ""}
+          </div>
           <button
-            key={example}
-            type="button"
-            style={styles.exampleButton}
-            onClick={() => handleExampleClick(example)}
+            type="submit"
+            disabled={!query.trim() || isRunning || !isRunnable}
+            style={{
+              ...buttonStyle,
+              minWidth: "120px",
+              background: !query.trim() || isRunning || !isRunnable ? "#223250" : "#2563eb",
+              borderColor: !query.trim() || isRunning || !isRunnable ? "#31486f" : "#3b82f6",
+              color: "#ffffff",
+              cursor: !query.trim() || isRunning || !isRunnable ? "not-allowed" : "pointer",
+            }}
           >
-            {example}
+            {isRunning ? "실행 중..." : "실행"}
           </button>
-        ))}
-      </div>
-
-      <div style={styles.console}>
-        <div style={styles.consoleToolbar}>
-          <span style={styles.consoleDot("#22c55e")} />
-          <span style={styles.consoleDot("#f59e0b")} />
-          <span style={styles.consoleDot("#ef4444")} />
-          <span style={styles.consoleLabel}>sql-console</span>
         </div>
-        <div style={styles.editor}>
-          <span style={styles.prompt}>db &gt;</span>
-          <textarea
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            spellCheck={false}
-            style={styles.textarea}
-            placeholder="SQL을 입력하세요."
-          />
-        </div>
-      </div>
+      </form>
 
-      <div style={styles.footer}>
-        <div style={styles.feedback}>
-          <p style={styles.feedbackLabel}>실행 상태</p>
-          <p style={styles.feedbackText(error)}>{error || message || "아직 실행하지 않았습니다."}</p>
-        </div>
-        <button type="button" style={styles.runButton(loading)} onClick={handleSubmit} disabled={loading}>
-          {loading ? "실행 중..." : "Run Query"}
-        </button>
-      </div>
+      <div style={{ ...cardStyle, display: "flex", flexDirection: "column", gap: "10px" }}>
+        <div style={{ fontSize: "14px", fontWeight: 700 }}>입력 히스토리</div>
 
-      <div style={styles.historySection}>
-        <p style={styles.historyTitle}>최근 실행</p>
         {history.length === 0 ? (
-          <p style={styles.emptyText}>아직 실행한 쿼리가 없습니다.</p>
+          <div style={{ color: "#7d92b3", fontSize: "13px", lineHeight: 1.6 }}>
+            아직 실행한 SQL이 없습니다. 예제 SQL을 선택하거나 직접 입력해보세요.
+          </div>
         ) : (
-          <ul style={styles.historyList}>
-            {history.map((item) => (
-              <li key={item} style={styles.historyItem}>
-                <button type="button" style={styles.historyButton} onClick={() => setQuery(item)}>
-                  {item}
-                </button>
-              </li>
+          <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+            {history.map((item, index) => (
+              <button
+                key={`${item}-${index}`}
+                type="button"
+                onClick={() => setQuery(item)}
+                style={{
+                  textAlign: "left",
+                  border: "1px solid #223250",
+                  background: "#0b1629",
+                  color: "#dbeafe",
+                  borderRadius: "10px",
+                  padding: "10px 12px",
+                  cursor: "pointer",
+                  fontFamily: "Consolas, 'JetBrains Mono', monospace",
+                  fontSize: "12px",
+                }}
+                title={item}
+              >
+                {formatHistoryLabel(item, index)}
+              </button>
             ))}
-          </ul>
+          </div>
         )}
       </div>
     </section>
   );
 }
-
-const styles = {
-  panel: {
-    minHeight: "720px",
-    display: "flex",
-    flexDirection: "column",
-    gap: "16px",
-    padding: "20px",
-    borderRadius: "24px",
-    background: "rgba(15, 23, 42, 0.92)",
-    border: "1px solid rgba(148, 163, 184, 0.16)",
-    boxShadow: "0 18px 40px rgba(0, 0, 0, 0.25)",
-  },
-  header: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  eyebrow: {
-    margin: 0,
-    fontSize: "11px",
-    letterSpacing: "0.16em",
-    fontWeight: 700,
-    color: "#38bdf8",
-  },
-  title: {
-    margin: "8px 0 0",
-    fontSize: "34px",
-    fontWeight: 800,
-  },
-  badge: (label, hasError) => ({
-    padding: "8px 14px",
-    borderRadius: "999px",
-    fontSize: "12px",
-    fontWeight: 700,
-    color: hasError ? "#fecaca" : "#dbeafe",
-    background: hasError ? "rgba(127, 29, 29, 0.45)" : "rgba(30, 41, 59, 0.95)",
-    border: `1px solid ${hasError ? "rgba(248, 113, 113, 0.35)" : "rgba(96, 165, 250, 0.2)"}`,
-  }),
-  examples: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "8px",
-  },
-  exampleButton: {
-    width: "100%",
-    textAlign: "left",
-    padding: "10px 14px",
-    borderRadius: "14px",
-    border: "1px solid rgba(96, 165, 250, 0.18)",
-    background: "rgba(15, 23, 42, 0.7)",
-    color: "#cbd5e1",
-    cursor: "pointer",
-    fontFamily: '"JetBrains Mono", "Fira Code", monospace',
-    fontSize: "12px",
-  },
-  console: {
-    flex: 1,
-    minHeight: "320px",
-    borderRadius: "18px",
-    overflow: "hidden",
-    background: "#020617",
-    border: "1px solid rgba(59, 130, 246, 0.18)",
-  },
-  consoleToolbar: {
-    display: "flex",
-    alignItems: "center",
-    gap: "8px",
-    padding: "10px 12px",
-    background: "rgba(15, 23, 42, 0.95)",
-    borderBottom: "1px solid rgba(148, 163, 184, 0.12)",
-  },
-  consoleDot: (color) => ({
-    width: "10px",
-    height: "10px",
-    borderRadius: "999px",
-    background: color,
-  }),
-  consoleLabel: {
-    marginLeft: "6px",
-    color: "#94a3b8",
-    fontSize: "12px",
-    fontFamily: '"JetBrains Mono", "Fira Code", monospace',
-  },
-  editor: {
-    display: "grid",
-    gridTemplateColumns: "auto 1fr",
-    gap: "10px",
-    height: "100%",
-    padding: "16px",
-  },
-  prompt: {
-    paddingTop: "2px",
-    color: "#38bdf8",
-    fontFamily: '"JetBrains Mono", "Fira Code", monospace',
-    fontSize: "13px",
-    fontWeight: 700,
-  },
-  textarea: {
-    width: "100%",
-    minHeight: "300px",
-    resize: "none",
-    border: "none",
-    outline: "none",
-    background: "transparent",
-    color: "#e2e8f0",
-    fontFamily: '"JetBrains Mono", "Fira Code", monospace',
-    fontSize: "14px",
-    lineHeight: 1.7,
-  },
-  footer: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "flex-end",
-    gap: "16px",
-  },
-  feedback: {
-    flex: 1,
-  },
-  feedbackLabel: {
-    margin: 0,
-    color: "#94a3b8",
-    fontSize: "12px",
-    fontWeight: 700,
-  },
-  feedbackText: (hasError) => ({
-    margin: "6px 0 0",
-    color: hasError ? "#fca5a5" : "#e2e8f0",
-    lineHeight: 1.6,
-    fontSize: "14px",
-  }),
-  runButton: (loading) => ({
-    padding: "14px 20px",
-    borderRadius: "14px",
-    border: "none",
-    cursor: loading ? "progress" : "pointer",
-    fontWeight: 700,
-    color: "#082f49",
-    background: loading ? "#7dd3fc" : "#38bdf8",
-    minWidth: "132px",
-    boxShadow: "0 10px 20px rgba(14, 165, 233, 0.22)",
-  }),
-  historySection: {
-    borderTop: "1px solid rgba(148, 163, 184, 0.12)",
-    paddingTop: "14px",
-  },
-  historyTitle: {
-    margin: 0,
-    color: "#cbd5e1",
-    fontWeight: 700,
-    fontSize: "14px",
-  },
-  historyList: {
-    margin: "10px 0 0",
-    padding: 0,
-    listStyle: "none",
-    display: "flex",
-    flexDirection: "column",
-    gap: "8px",
-  },
-  historyItem: {
-    margin: 0,
-  },
-  historyButton: {
-    width: "100%",
-    textAlign: "left",
-    border: "1px solid rgba(148, 163, 184, 0.14)",
-    borderRadius: "12px",
-    padding: "10px 12px",
-    background: "rgba(15, 23, 42, 0.6)",
-    color: "#94a3b8",
-    cursor: "pointer",
-    fontFamily: '"JetBrains Mono", "Fira Code", monospace',
-    fontSize: "12px",
-  },
-  emptyText: {
-    margin: "10px 0 0",
-    color: "#64748b",
-    fontSize: "13px",
-  },
-};

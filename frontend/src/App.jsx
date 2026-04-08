@@ -5,7 +5,8 @@ import ParseTreePanel from "./components/ParseTreePanel";
 import ServicePanel from "./components/ServicePanel";
 
 const DEFAULT_QUERY = "SELECT * FROM comments;";
-const DEFAULT_MESSAGE = "왼쪽 CLI에서 SQL을 실행하면 파싱 트리와 서비스 패널이 함께 갱신됩니다.";
+const DEFAULT_MESSAGE =
+  "왼쪽 CLI에서 SQL을 실행하면 파싱 트리와 서비스 패널이 함께 갱신됩니다.";
 
 export default function App() {
   const [query, setQuery] = useState(DEFAULT_QUERY);
@@ -76,19 +77,14 @@ export default function App() {
           <h1 style={styles.title}>Cupid SQL Integration Page</h1>
         </div>
         <p style={styles.subtitle}>
-          CLI 입력, 파싱 트리 시각화, 서비스 출력이 하나의 실제 C 엔진 흐름으로 연결됩니다.
+          `semin` 브랜치의 CLI 입력 화면과 `gyugo` 브랜치의 Parse Tree
+          시각화를 현재 통합 페이지에 연결했습니다.
         </p>
       </section>
 
       <section style={styles.grid}>
-        <CliPanel
-          initialQuery={query}
-          loading={loading}
-          message={message}
-          error={error}
-          onRun={handleRun}
-        />
-        <ParseTreePanel tree={parseTree} />
+        <CliPanel initialQuery={query} isRunning={loading} onRun={handleRun} />
+        <ParseTreePanel parseTree={parseTree} />
         <ServicePanel
           rows={rows}
           queryType={queryType}
@@ -133,7 +129,7 @@ const styles = {
   },
   subtitle: {
     margin: 0,
-    maxWidth: "480px",
+    maxWidth: "520px",
     color: "#cbd5e1",
     lineHeight: 1.6,
     fontSize: "15px",
