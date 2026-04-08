@@ -1,69 +1,53 @@
-/**
- * ============================================
- *  SQL Executor - 구현
- * ============================================
- *
- * Statement를 받아 storage 함수를 호출하여 실행
- *
- * INSERT → storage_insert()
- * SELECT → storage_select_all() 또는 storage_select_where()
- */
+#include "executor.h"
 
 #include <stdio.h>
 #include <string.h>
-#include "executor.h"
-#include "storage.h"
 
-/**
- * Row를 화면에 출력
- * 형식: (id, username, email)
- */
-static void print_row(const Row *row) {
-    printf("(%d, %s, %s)\n", row->id, row->username, row->email);
+static void set_message(ExecutionOutput *output, const char *message) {
+    snprintf(output->message, sizeof(output->message), "%s", message);
 }
 
-/* ─── INSERT 실행 ─── */
-static ExecuteResult execute_insert(const Statement *stmt) {
-    int result = storage_insert(stmt->table_name, &stmt->row);
+int execute_statement(const Statement *statement, ExecutionOutput *output) {
+    const TableSchema *schema;
+    int index;
 
-    switch (result) {
-        case 0:  return EXECUTE_SUCCESS;
-        case 1:  return EXECUTE_DUPLICATE_KEY;
-        default: return EXECUTE_FILE_ERROR;
-    }
-}
+    memset(output, 0, sizeof(*output));
 
-/* ─── SELECT 실행 ─── */
-static ExecuteResult execute_select(const Statement *stmt) {
-    RowSet results;
-
-    int rc;
-    if (stmt->where.has_where) {
-        rc = storage_select_where(stmt->table_name, stmt->where.column,
-                                  stmt->where.value, &results);
-    } else {
-        rc = storage_select_all(stmt->table_name, &results);
+    schema = find_schema(statement->table_name);
+    if (schema == NULL) {
+        set_message(output, "Table schema not found");
+        return 0;
     }
 
-    if (rc != 0) return EXECUTE_FILE_ERROR;
+    output->schema = schema;
 
-    /* 결과 출력 */
-    for (int i = 0; i < results.count; i++) {
-        print_row(&results.rows[i]);
+    if (statement->type == STMT_INSERT) {
+        if (!storage_insert_row(schema, statement, output->message, (int)sizeof(output->message))) {
+            return 0;
+        }
+        output->success = 1;
+        set_message(output, "Executed.");
+        return 1;
     }
 
-    return EXECUTE_SUCCESS;
-}
+    if (statement->type == STMT_SELECT) {
+        if (!statement->select_all) {
+            for (index = 0; index < statement->selected_column_count; index++) {
+                if (schema_column_index(schema, statement->selected_columns[index]) < 0) {
+                    set_message(output, "Selected column not found in schema");
+                    return 0;
+                }
+            }
+        }
 
-/* ─── 공개 함수 ─── */
-
-ExecuteResult execute_statement(const Statement *stmt) {
-    switch (stmt->type) {
-        case STMT_INSERT:
-            return execute_insert(stmt);
-        case STMT_SELECT:
-            return execute_select(stmt);
-        default:
-            return EXECUTE_TABLE_NOT_FOUND;
+        if (!storage_select_rows(schema, statement, &output->result, output->message, (int)sizeof(output->message))) {
+            return 0;
+        }
+        output->success = 1;
+        set_message(output, "Executed.");
+        return 1;
     }
+
+    set_message(output, "Unsupported statement type");
+    return 0;
 }

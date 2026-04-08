@@ -1,173 +1,128 @@
-/**
- * ============================================
- *  Cupid SQL Processor - 메인 진입점
- * ============================================
- *
- * 크래프톤 정글 WEEK6 - SQL 처리기
- *
- * 사용법:
- *   ./db                    → 대화형 CLI 모드
- *   ./db input.sql          → SQL 파일 실행 모드
- *
- * 지원 SQL:
- *   INSERT INTO <table> VALUES (<v1>, <v2>, ...);
- *   SELECT FROM <table>;
- *   SELECT FROM <table> WHERE <col> = <val>;
- *
- * 아키텍처:
- *   main.c      → CLI 루프 + 파일 입력
- *   parser.c    → SQL 토크나이징 + 파싱
- *   executor.c  → INSERT/SELECT 실행
- *   storage.c   → 파일 기반 DB 읽기/쓰기
- */
+#include "executor.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "parser.h"
-#include "executor.h"
 
-#define MAX_INPUT 4096
+#define MAX_INPUT_LEN 2048
 
-/* ─── 대화형 CLI 모드 ─── */
+static void trim_newline(char *text) {
+    size_t length = strlen(text);
+    while (length > 0 && (text[length - 1] == '\n' || text[length - 1] == '\r')) {
+        text[length - 1] = '\0';
+        length--;
+    }
+}
+
+static void print_select_result(const Statement *statement, const ExecutionOutput *output) {
+    int row_index;
+    int column_index;
+
+    for (row_index = 0; row_index < output->result.count; row_index++) {
+        printf("(");
+
+        if (statement->select_all) {
+            for (column_index = 0; column_index < output->schema->column_count; column_index++) {
+                printf("%s", output->result.rows[row_index].values[column_index]);
+                if (column_index + 1 < output->schema->column_count) {
+                    printf(", ");
+                }
+            }
+        } else {
+            for (column_index = 0; column_index < statement->selected_column_count; column_index++) {
+                int schema_index = schema_column_index(output->schema, statement->selected_columns[column_index]);
+                if (schema_index >= 0) {
+                    printf("%s", output->result.rows[row_index].values[schema_index]);
+                } else {
+                    printf("NULL");
+                }
+
+                if (column_index + 1 < statement->selected_column_count) {
+                    printf(", ");
+                }
+            }
+        }
+
+        printf(")\n");
+    }
+}
+
+static void run_query(const char *query) {
+    Statement statement;
+    ExecutionOutput output;
+    char error[MAX_ERROR_LEN];
+
+    if (!parse_sql(query, &statement, error, (int)sizeof(error))) {
+        printf("Error: %s\n", error);
+        return;
+    }
+
+    if (!execute_statement(&statement, &output)) {
+        printf("Error: %s\n", output.message);
+        return;
+    }
+
+    if (statement.type == STMT_SELECT) {
+        print_select_result(&statement, &output);
+    }
+
+    printf("%s\n", output.message);
+}
+
 static void run_repl(void) {
-    char input[MAX_INPUT];
+    char input[MAX_INPUT_LEN];
 
-    printf("db > ");
-    fflush(stdout);
+    while (1) {
+        printf("db > ");
+        fflush(stdout);
 
-    while (fgets(input, sizeof(input), stdin)) {
-        /* 줄바꿈 제거 */
-        size_t len = strlen(input);
-        if (len > 0 && input[len - 1] == '\n') {
-            input[len - 1] = '\0';
+        if (fgets(input, sizeof(input), stdin) == NULL) {
+            break;
         }
 
-        /* 빈 입력 무시 */
-        if (input[0] == '\0') {
-            printf("db > ");
-            fflush(stdout);
-            continue;
-        }
+        trim_newline(input);
 
-        /* 종료 명령 */
         if (strcmp(input, ".exit") == 0 || strcmp(input, "quit") == 0) {
             printf("Bye.\n");
             break;
         }
 
-        /* SQL 파싱 */
-        Statement stmt;
-        ParseResult result = parse_sql(input, &stmt);
-
-        if (result != PARSE_OK) {
-            print_parse_error(result, input);
-            printf("db > ");
-            fflush(stdout);
+        if (input[0] == '\0') {
             continue;
         }
 
-        /* SQL 실행 */
-        ExecuteResult exec_result = execute_statement(&stmt);
-
-        switch (exec_result) {
-            case EXECUTE_SUCCESS:
-                printf("Executed.\n");
-                break;
-            case EXECUTE_TABLE_NOT_FOUND:
-                printf("Error: Table '%s' not found.\n", stmt.table_name);
-                break;
-            case EXECUTE_DUPLICATE_KEY:
-                printf("Error: Duplicate key '%d'.\n", stmt.row.id);
-                break;
-            case EXECUTE_FILE_ERROR:
-                printf("Error: File I/O error.\n");
-                break;
-            case EXECUTE_NO_RESULTS:
-                printf("No results found.\n");
-                break;
-            default:
-                printf("Error: Unknown execution error.\n");
-                break;
-        }
-
-        printf("db > ");
-        fflush(stdout);
+        run_query(input);
     }
 }
 
-/* ─── SQL 파일 실행 모드 ─── */
-static void run_file(const char *filename) {
-    FILE *fp = fopen(filename, "r");
-    if (!fp) {
-        fprintf(stderr, "Error: Cannot open file '%s'\n", filename);
+static void run_file(const char *path) {
+    FILE *file = fopen(path, "r");
+    char line[MAX_INPUT_LEN];
+
+    if (file == NULL) {
+        fprintf(stderr, "Error: failed to open %s\n", path);
         exit(1);
     }
 
-    char line[MAX_INPUT];
-    int line_no = 0;
-
-    while (fgets(line, sizeof(line), fp)) {
-        line_no++;
-
-        /* 줄바꿈 제거 */
-        size_t len = strlen(line);
-        if (len > 0 && line[len - 1] == '\n') {
-            line[len - 1] = '\0';
-        }
-
-        /* 빈 줄, 주석 무시 */
-        if (line[0] == '\0' || line[0] == '#' || (line[0] == '-' && line[1] == '-')) {
+    while (fgets(line, sizeof(line), file) != NULL) {
+        trim_newline(line);
+        if (line[0] == '\0') {
             continue;
         }
 
         printf("db > %s\n", line);
-
-        Statement stmt;
-        ParseResult result = parse_sql(line, &stmt);
-
-        if (result != PARSE_OK) {
-            fprintf(stderr, "[line %d] ", line_no);
-            print_parse_error(result, line);
-            continue;
-        }
-
-        ExecuteResult exec_result = execute_statement(&stmt);
-
-        switch (exec_result) {
-            case EXECUTE_SUCCESS:
-                printf("Executed.\n");
-                break;
-            case EXECUTE_TABLE_NOT_FOUND:
-                printf("Error: Table '%s' not found.\n", stmt.table_name);
-                break;
-            case EXECUTE_DUPLICATE_KEY:
-                printf("Error: Duplicate key '%d'.\n", stmt.row.id);
-                break;
-            case EXECUTE_FILE_ERROR:
-                printf("Error: File I/O error.\n");
-                break;
-            case EXECUTE_NO_RESULTS:
-                printf("No results found.\n");
-                break;
-            default:
-                printf("Error: Unknown execution error.\n");
-                break;
-        }
+        run_query(line);
     }
 
-    fclose(fp);
+    fclose(file);
 }
 
-/* ─── main ─── */
 int main(int argc, char *argv[]) {
     if (argc >= 2) {
-        /* 파일 모드: ./db input.sql */
         run_file(argv[1]);
-    } else {
-        /* 대화형 CLI 모드: ./db */
-        run_repl();
+        return 0;
     }
 
+    run_repl();
     return 0;
 }

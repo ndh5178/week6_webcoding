@@ -1,33 +1,15 @@
-/**
- * ============================================
- *  SQL Executor - 헤더
- * ============================================
- *
- * 파싱된 Statement를 실행합니다.
- *   INSERT → storage에 행(Row) 추가
- *   SELECT → storage에서 행 읽어서 출력
- */
-
 #ifndef EXECUTOR_H
 #define EXECUTOR_H
 
-#include "parser.h"
+#include "storage.h"
 
-/* ─── 실행 결과 코드 ─── */
-typedef enum {
-    EXECUTE_SUCCESS,
-    EXECUTE_TABLE_NOT_FOUND,
-    EXECUTE_DUPLICATE_KEY,
-    EXECUTE_FILE_ERROR,
-    EXECUTE_NO_RESULTS
-} ExecuteResult;
+typedef struct {
+    int success;
+    char message[MAX_ERROR_LEN];
+    QueryResult result;
+    const TableSchema *schema;
+} ExecutionOutput;
 
-/**
- * Statement를 실행
- *
- * @param stmt  파싱된 Statement
- * @return      실행 결과 코드
- */
-ExecuteResult execute_statement(const Statement *stmt);
+int execute_statement(const Statement *statement, ExecutionOutput *output);
 
-#endif /* EXECUTOR_H */
+#endif

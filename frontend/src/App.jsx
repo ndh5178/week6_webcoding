@@ -1,82 +1,149 @@
-import React, { useState, useCallback } from 'react';
-import Terminal from './components/Terminal';
-import ParseTree from './components/ParseTree';
-import DateMatchPage from './components/DateMatchPage';
+import { useState } from "react";
+import CliPanel from "./components/CliPanel";
+import ParseTreePanel from "./components/ParseTreePanel";
+import ServicePanel from "./components/ServicePanel";
 
-/**
- * === Cupid SQL 메인 앱 ===
- *
- * 3개 탭:
- *   1. SQL 터미널 (세민) + 파싱 트리 (규민) - 좌우 분할
- *   2. 데이트 매칭 (규태) - 전체 화면
- */
+const DEFAULT_MESSAGE = "왼쪽 CLI에서 SQL을 실행하면 파싱 트리와 서비스 패널이 함께 갱신됩니다.";
+
 export default function App() {
-  const [activeTab, setActiveTab] = useState('terminal');
+  const [query, setQuery] = useState("");
   const [parseTree, setParseTree] = useState(null);
-  const [matchResult, setMatchResult] = useState(null);
+  const [rows, setRows] = useState([]);
+  const [queryType, setQueryType] = useState("");
+  const [message, setMessage] = useState(DEFAULT_MESSAGE);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
-  const handleParseTree = useCallback((tree) => {
-    setParseTree(tree);
-  }, []);
+  async function handleRun(nextQuery) {
+    const trimmedQuery = nextQuery.trim();
 
-  const handleMatchResult = useCallback((result) => {
-    setMatchResult(result);
-  }, []);
+    if (!trimmedQuery) {
+      setError("Query is empty.");
+      return;
+    }
+
+    setQuery(trimmedQuery);
+    setLoading(true);
+    setError("");
+    setQueryType("");
+
+    try {
+      const response = await fetch("/api/query", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ query: trimmedQuery }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        setError(result.message || "Query execution failed.");
+        setMessage(result.message || "Query execution failed.");
+        setParseTree(result.parseTree || null);
+        setRows(result.rows || []);
+        setQueryType(result.queryType || "");
+        return;
+      }
+
+      setParseTree(result.parseTree || null);
+      setRows(result.rows || []);
+      setMessage(result.message || "Executed.");
+      setQueryType(result.queryType || "");
+    } catch (_fetchError) {
+      setError("Backend connection failed.");
+      setMessage("Backend connection failed.");
+    } finally {
+      setLoading(false);
+    }
+  }
 
   return (
-    <div className="app-container" style={
-      activeTab === 'match'
-        ? { gridTemplateColumns: '1fr' }
-        : { gridTemplateColumns: '1fr 1fr' }
-    }>
-      {/* ─── 헤더 ─── */}
-      <header className="header">
-        <h1>Cupid SQL</h1>
-        <nav className="nav-tabs">
-          <button
-            className={`nav-tab ${activeTab === 'terminal' ? 'active' : ''}`}
-            onClick={() => setActiveTab('terminal')}
-          >
-            SQL Terminal
-          </button>
-          <button
-            className={`nav-tab ${activeTab === 'match' ? 'active' : ''}`}
-            onClick={() => setActiveTab('match')}
-          >
-            Date Matching
-          </button>
-        </nav>
+    <main style={styles.page}>
+      <header style={styles.header}>
+        <div>
+          <p style={styles.eyebrow}>Three-Panel SQL Demo</p>
+          <h1 style={styles.title}>Cupid SQL Integration Page</h1>
+        </div>
+        <p style={styles.subtitle}>
+          CLI 입력, 파싱 구조 시각화, 서비스 화면이 한 번의 SQL 실행 흐름으로 함께 움직입니다.
+        </p>
       </header>
 
-      {/* ─── 터미널 탭 ─── */}
-      {activeTab === 'terminal' && (
-        <>
-          <div className="panel">
-            <div className="panel-header">
-              <span className="dot green"></span>
-              Terminal — 세민
-            </div>
-            <Terminal
-              onParseTree={handleParseTree}
-              onMatchResult={handleMatchResult}
-            />
-          </div>
-          <div className="panel">
-            <div className="panel-header">
-              <span className="dot purple"></span>
-              Parse Tree — 규민
-            </div>
-            <div className="parse-tree-container">
-              <ParseTree tree={parseTree} />
-            </div>
-          </div>
-        </>
-      )}
+      <section style={styles.grid}>
+        <div style={styles.panel}>
+          <CliPanel
+            initialQuery={query}
+            loading={loading}
+            onRun={handleRun}
+            message={message}
+            error={error}
+          />
+        </div>
 
-      {/* ─── 데이트 매칭 탭 ─── */}
-      {activeTab === 'match' && (
-        <DateMatchPage />
-      )}
-    </div>
+        <div style={styles.panel}>
+          <ParseTreePanel tree={parseTree} />
+        </div>
+
+        <div style={styles.panel}>
+          <ServicePanel
+            rows={rows}
+            queryType={queryType}
+            message={message}
+            loading={loading}
+            error={error}
+          />
+        </div>
+      </section>
+    </main>
   );
 }
+
+const styles = {
+  page: {
+    minHeight: "100vh",
+    padding: "24px",
+    background: "#0b1020",
+    color: "#f3f4f6",
+    fontFamily: "system-ui, sans-serif",
+  },
+  header: {
+    display: "flex",
+    justifyContent: "space-between",
+    gap: "24px",
+    alignItems: "flex-end",
+    marginBottom: "24px",
+    flexWrap: "wrap",
+  },
+  eyebrow: {
+    margin: 0,
+    fontSize: "12px",
+    letterSpacing: "0.12em",
+    textTransform: "uppercase",
+    color: "#7dd3fc",
+  },
+  title: {
+    margin: "6px 0 0",
+    fontSize: "32px",
+    lineHeight: 1.1,
+  },
+  subtitle: {
+    maxWidth: "680px",
+    margin: 0,
+    color: "#cbd5e1",
+  },
+  grid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+    gap: "16px",
+  },
+  panel: {
+    minHeight: "560px",
+    background: "#111827",
+    border: "1px solid #1f2937",
+    borderRadius: "16px",
+    overflow: "hidden",
+    boxShadow: "0 20px 40px rgba(0, 0, 0, 0.25)",
+  },
+};

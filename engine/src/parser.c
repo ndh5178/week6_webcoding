@@ -1,365 +1,323 @@
-/**
- * ============================================
- *  SQL Parser - 구현
- * ============================================
- *
- * 2단계 파싱:
- *   1단계: 토크나이저 (문자열 → 토큰 배열)
- *   2단계: 파서 (토큰 배열 → Statement 구조체)
- *
- * 지원 문법:
- *   insert into <table> values (<id>, <name>, <email>);
- *   insert <id> <name> <email>         ← 간편 문법
- *   select from <table>;
- *   select from <table> where <col> = <val>;
- *   select                              ← 간편 문법 (기본 테이블)
- */
-
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <ctype.h>
 #include "parser.h"
 
-/* 기본 테이블 이름 (간편 문법용) */
-#define DEFAULT_TABLE "users"
+#include <ctype.h>
+#include <stdio.h>
+#include <string.h>
 
-/* ─── 키워드 목록 ─── */
-static const char *KEYWORDS[] = {
-    "INSERT", "INTO", "VALUES", "SELECT", "FROM", "WHERE", NULL
-};
+typedef struct {
+    const char *cursor;
+} Parser;
 
-static int is_keyword(const char *word) {
-    char upper[MAX_VAL_STR + 1];
-    size_t i;
-    for (i = 0; word[i] && i < MAX_VAL_STR; i++) {
-        upper[i] = toupper((unsigned char)word[i]);
+static void set_error(char *error, int error_size, const char *message) {
+    if (error != NULL && error_size > 0) {
+        snprintf(error, (size_t)error_size, "%s", message);
     }
-    upper[i] = '\0';
-
-    for (int k = 0; KEYWORDS[k]; k++) {
-        if (strcmp(upper, KEYWORDS[k]) == 0) return 1;
-    }
-    return 0;
 }
 
-/* ─── 1단계: 토크나이저 ─── */
+static void skip_spaces(Parser *parser) {
+    while (*parser->cursor != '\0' && isspace((unsigned char)*parser->cursor)) {
+        parser->cursor++;
+    }
+}
 
-/**
- * SQL 문자열을 토큰 배열로 분리
- * 반환: 토큰 개수
- */
-static int tokenize(const char *input, Token tokens[], int max_tokens) {
-    int count = 0;
-    const char *p = input;
+static int is_ident_char(char ch) {
+    return isalnum((unsigned char)ch) || ch == '_';
+}
 
-    while (*p && count < max_tokens - 1) {
-        /* 공백 건너뛰기 */
-        while (*p && isspace((unsigned char)*p)) p++;
-        if (!*p) break;
+static int match_keyword(Parser *parser, const char *keyword) {
+    const char *start = parser->cursor;
 
-        Token *t = &tokens[count];
-
-        /* 특수 문자 */
-        if (*p == '(') { t->type = TOKEN_LPAREN;    strcpy(t->value, "("); p++; count++; continue; }
-        if (*p == ')') { t->type = TOKEN_RPAREN;    strcpy(t->value, ")"); p++; count++; continue; }
-        if (*p == ',') { t->type = TOKEN_COMMA;     strcpy(t->value, ","); p++; count++; continue; }
-        if (*p == '=') { t->type = TOKEN_EQUALS;    strcpy(t->value, "="); p++; count++; continue; }
-        if (*p == ';') { t->type = TOKEN_SEMICOLON; strcpy(t->value, ";"); p++; count++; continue; }
-        if (*p == '*') { t->type = TOKEN_STAR;      strcpy(t->value, "*"); p++; count++; continue; }
-
-        /* 숫자 (음수 포함) */
-        if (isdigit((unsigned char)*p) || (*p == '-' && isdigit((unsigned char)*(p + 1)))) {
-            int len = 0;
-            if (*p == '-') t->value[len++] = *p++;
-            while (*p && isdigit((unsigned char)*p) && len < MAX_VAL_STR) {
-                t->value[len++] = *p++;
-            }
-            t->value[len] = '\0';
-            t->type = TOKEN_NUMBER;
-            count++;
-            continue;
+    while (*keyword != '\0') {
+        if (toupper((unsigned char)*start) != toupper((unsigned char)*keyword)) {
+            return 0;
         }
-
-        /* 따옴표 문자열 ('...' 또는 "...") */
-        if (*p == '\'' || *p == '"') {
-            char quote = *p++;
-            int len = 0;
-            while (*p && *p != quote && len < MAX_VAL_STR) {
-                t->value[len++] = *p++;
-            }
-            t->value[len] = '\0';
-            if (*p == quote) p++;   /* 닫는 따옴표 건너뛰기 */
-            t->type = TOKEN_STRING;
-            count++;
-            continue;
-        }
-
-        /* 일반 단어 (키워드 또는 식별자) */
-        if (isalpha((unsigned char)*p) || *p == '_') {
-            int len = 0;
-            while (*p && (isalnum((unsigned char)*p) || *p == '_' || *p == '.' || *p == '@') && len < MAX_VAL_STR) {
-                t->value[len++] = *p++;
-            }
-            t->value[len] = '\0';
-
-            if (is_keyword(t->value)) {
-                /* 키워드는 대문자로 정규화 */
-                for (int i = 0; t->value[i]; i++) {
-                    t->value[i] = toupper((unsigned char)t->value[i]);
-                }
-                t->type = TOKEN_KEYWORD;
-            } else {
-                t->type = TOKEN_IDENT;
-            }
-            count++;
-            continue;
-        }
-
-        /* 알 수 없는 문자 → 건너뛰기 */
-        p++;
+        start++;
+        keyword++;
     }
 
-    /* EOF 토큰 */
-    tokens[count].type = TOKEN_EOF;
-    tokens[count].value[0] = '\0';
+    if (is_ident_char(*start)) {
+        return 0;
+    }
 
-    return count;
+    parser->cursor = start;
+    return 1;
 }
 
-/* ─── 2단계: 파서 ─── */
-
-/**
- * 토큰이 특정 키워드인지 확인
- */
-static int is_token_keyword(const Token *t, const char *kw) {
-    return t->type == TOKEN_KEYWORD && strcmp(t->value, kw) == 0;
+static int expect_keyword(Parser *parser, const char *keyword, char *error, int error_size) {
+    skip_spaces(parser);
+    if (!match_keyword(parser, keyword)) {
+        set_error(error, error_size, "Expected SQL keyword");
+        return 0;
+    }
+    return 1;
 }
 
-/**
- * INSERT 문 파싱
- *
- * 정식 문법:
- *   INSERT INTO <table> VALUES (<id>, <name>, <email>);
- *
- * 간편 문법 (예시처럼):
- *   insert <id> <name> <email>
- */
-static ParseResult parse_insert(Token tokens[], int count, Statement *stmt) {
-    stmt->type = STMT_INSERT;
-    int pos = 1;  /* INSERT 다음부터 */
+static int expect_char(Parser *parser, char expected, char *error, int error_size) {
+    skip_spaces(parser);
+    if (*parser->cursor != expected) {
+        set_error(error, error_size, "Expected punctuation");
+        return 0;
+    }
+    parser->cursor++;
+    return 1;
+}
 
-    /* INTO 키워드 확인 */
-    if (pos < count && is_token_keyword(&tokens[pos], "INTO")) {
-        pos++;
+static int parse_identifier(Parser *parser, char *buffer, int buffer_size, char *error, int error_size) {
+    int index = 0;
 
-        /* 테이블 이름 */
-        if (pos >= count || (tokens[pos].type != TOKEN_IDENT && tokens[pos].type != TOKEN_STRING)) {
-            return PARSE_MISSING_TABLE;
+    skip_spaces(parser);
+    if (!isalpha((unsigned char)*parser->cursor) && *parser->cursor != '_') {
+        set_error(error, error_size, "Expected identifier");
+        return 0;
+    }
+
+    while (is_ident_char(*parser->cursor)) {
+        if (index >= buffer_size - 1) {
+            set_error(error, error_size, "Identifier too long");
+            return 0;
         }
-        strncpy(stmt->table_name, tokens[pos].value, MAX_TABLE_NAME);
-        pos++;
+        buffer[index++] = *parser->cursor;
+        parser->cursor++;
+    }
 
-        /* VALUES 키워드 */
-        if (pos >= count || !is_token_keyword(&tokens[pos], "VALUES")) {
-            return PARSE_MISSING_VALUES;
+    buffer[index] = '\0';
+    return 1;
+}
+
+static int parse_value(Parser *parser, char *buffer, int buffer_size, char *error, int error_size) {
+    int index = 0;
+
+    skip_spaces(parser);
+
+    if (*parser->cursor == '\'' || *parser->cursor == '"') {
+        char quote = *parser->cursor++;
+        while (*parser->cursor != '\0' && *parser->cursor != quote) {
+            if (index >= buffer_size - 1) {
+                set_error(error, error_size, "Value too long");
+                return 0;
+            }
+            buffer[index++] = *parser->cursor;
+            parser->cursor++;
         }
-        pos++;
 
-        /* 여는 괄호 */
-        if (pos >= count || tokens[pos].type != TOKEN_LPAREN) {
-            return PARSE_MISSING_PAREN;
+        if (*parser->cursor != quote) {
+            set_error(error, error_size, "Missing closing quote");
+            return 0;
         }
-        pos++;
 
-        /* 값 1: id (숫자) */
-        if (pos >= count || tokens[pos].type != TOKEN_NUMBER) {
-            return PARSE_INVALID_ID;
-        }
-        stmt->row.id = atoi(tokens[pos].value);
-        pos++;
-
-        /* 콤마 */
-        if (pos < count && tokens[pos].type == TOKEN_COMMA) pos++;
-
-        /* 값 2: username */
-        if (pos >= count) return PARSE_TOO_FEW_VALUES;
-        if (tokens[pos].type == TOKEN_STRING || tokens[pos].type == TOKEN_IDENT || tokens[pos].type == TOKEN_NUMBER) {
-            strncpy(stmt->row.username, tokens[pos].value, MAX_USERNAME);
-        } else {
-            return PARSE_TOO_FEW_VALUES;
-        }
-        pos++;
-
-        /* 콤마 */
-        if (pos < count && tokens[pos].type == TOKEN_COMMA) pos++;
-
-        /* 값 3: email */
-        if (pos >= count) return PARSE_TOO_FEW_VALUES;
-        if (tokens[pos].type == TOKEN_STRING || tokens[pos].type == TOKEN_IDENT || tokens[pos].type == TOKEN_NUMBER) {
-            strncpy(stmt->row.email, tokens[pos].value, MAX_EMAIL);
-        } else {
-            return PARSE_TOO_FEW_VALUES;
-        }
-        pos++;
-
-        /* 닫는 괄호 (있으면 OK, 없어도 OK) */
-        /* 세미콜론도 선택적 */
-
+        parser->cursor++;
     } else {
-        /* ─── 간편 문법: insert <id> <name> <email> ─── */
-        strcpy(stmt->table_name, DEFAULT_TABLE);
-
-        /* id */
-        if (pos >= count || tokens[pos].type != TOKEN_NUMBER) {
-            return PARSE_INVALID_ID;
+        while (*parser->cursor != '\0' &&
+               *parser->cursor != ',' &&
+               *parser->cursor != ')' &&
+               *parser->cursor != ';' &&
+               !isspace((unsigned char)*parser->cursor)) {
+            if (index >= buffer_size - 1) {
+                set_error(error, error_size, "Value too long");
+                return 0;
+            }
+            buffer[index++] = *parser->cursor;
+            parser->cursor++;
         }
-        stmt->row.id = atoi(tokens[pos].value);
-        pos++;
-
-        /* username */
-        if (pos >= count) return PARSE_TOO_FEW_VALUES;
-        strncpy(stmt->row.username, tokens[pos].value, MAX_USERNAME);
-        pos++;
-
-        /* email */
-        if (pos >= count) return PARSE_TOO_FEW_VALUES;
-        strncpy(stmt->row.email, tokens[pos].value, MAX_EMAIL);
     }
 
-    return PARSE_OK;
+    if (index == 0) {
+        set_error(error, error_size, "Expected value");
+        return 0;
+    }
+
+    buffer[index] = '\0';
+    return 1;
 }
 
-/**
- * SELECT 문 파싱
- *
- * 정식 문법:
- *   SELECT FROM <table>;
- *   SELECT * FROM <table>;
- *   SELECT FROM <table> WHERE <col> = <val>;
- *
- * 간편 문법:
- *   select
- */
-static ParseResult parse_select(Token tokens[], int count, Statement *stmt) {
-    stmt->type = STMT_SELECT;
-    stmt->where.has_where = 0;
-    int pos = 1;  /* SELECT 다음부터 */
+static int parse_value_list(Parser *parser, Statement *statement, char *error, int error_size) {
+    statement->value_count = 0;
 
-    /* 간편 문법: "select" 만 입력 */
-    if (pos >= count || tokens[pos].type == TOKEN_SEMICOLON || tokens[pos].type == TOKEN_EOF) {
-        strcpy(stmt->table_name, DEFAULT_TABLE);
-        return PARSE_OK;
-    }
-
-    /* * (선택적) */
-    if (tokens[pos].type == TOKEN_STAR) {
-        pos++;
-    }
-
-    /* FROM 키워드 */
-    if (pos < count && is_token_keyword(&tokens[pos], "FROM")) {
-        pos++;
-
-        /* 테이블 이름 */
-        if (pos >= count || (tokens[pos].type != TOKEN_IDENT && tokens[pos].type != TOKEN_STRING)) {
-            return PARSE_MISSING_TABLE;
+    while (1) {
+        if (statement->value_count >= MAX_COLUMNS) {
+            set_error(error, error_size, "Too many values");
+            return 0;
         }
-        strncpy(stmt->table_name, tokens[pos].value, MAX_TABLE_NAME);
-        pos++;
+
+        if (!parse_value(parser, statement->values[statement->value_count], MAX_VALUE_LEN, error, error_size)) {
+            return 0;
+        }
+
+        statement->value_count++;
+        skip_spaces(parser);
+
+        if (*parser->cursor != ',') {
+            break;
+        }
+
+        parser->cursor++;
+    }
+
+    return 1;
+}
+
+static int parse_identifier_list(Parser *parser, Statement *statement, char *error, int error_size) {
+    statement->selected_column_count = 0;
+
+    while (1) {
+        if (statement->selected_column_count >= MAX_COLUMNS) {
+            set_error(error, error_size, "Too many columns");
+            return 0;
+        }
+
+        if (!parse_identifier(parser,
+                              statement->selected_columns[statement->selected_column_count],
+                              MAX_COLUMN_NAME,
+                              error,
+                              error_size)) {
+            return 0;
+        }
+
+        statement->selected_column_count++;
+        skip_spaces(parser);
+
+        if (*parser->cursor != ',') {
+            break;
+        }
+
+        parser->cursor++;
+    }
+
+    return 1;
+}
+
+static int parse_insert(Parser *parser, Statement *statement, char *error, int error_size) {
+    statement->type = STMT_INSERT;
+
+    if (!expect_keyword(parser, "INTO", error, error_size)) {
+        return 0;
+    }
+
+    if (!parse_identifier(parser, statement->table_name, MAX_TABLE_NAME, error, error_size)) {
+        return 0;
+    }
+
+    if (!expect_keyword(parser, "VALUES", error, error_size)) {
+        return 0;
+    }
+
+    if (!expect_char(parser, '(', error, error_size)) {
+        return 0;
+    }
+
+    if (!parse_value_list(parser, statement, error, error_size)) {
+        return 0;
+    }
+
+    if (!expect_char(parser, ')', error, error_size)) {
+        return 0;
+    }
+
+    return 1;
+}
+
+static int parse_where_clause(Parser *parser, Statement *statement, char *error, int error_size) {
+    statement->where.has_where = 0;
+    skip_spaces(parser);
+
+    if (!match_keyword(parser, "WHERE")) {
+        return 1;
+    }
+
+    statement->where.has_where = 1;
+
+    if (!parse_identifier(parser, statement->where.column, MAX_COLUMN_NAME, error, error_size)) {
+        return 0;
+    }
+
+    if (!expect_char(parser, '=', error, error_size)) {
+        return 0;
+    }
+
+    if (!parse_value(parser, statement->where.value, MAX_VALUE_LEN, error, error_size)) {
+        return 0;
+    }
+
+    return 1;
+}
+
+static int parse_select(Parser *parser, Statement *statement, char *error, int error_size) {
+    statement->type = STMT_SELECT;
+    statement->select_all = 0;
+
+    skip_spaces(parser);
+
+    if (*parser->cursor == '*') {
+        statement->select_all = 1;
+        parser->cursor++;
     } else {
-        /* FROM 없으면 기본 테이블 */
-        strcpy(stmt->table_name, DEFAULT_TABLE);
+        if (!parse_identifier_list(parser, statement, error, error_size)) {
+            return 0;
+        }
     }
 
-    /* WHERE 절 (선택적) */
-    if (pos < count && is_token_keyword(&tokens[pos], "WHERE")) {
-        pos++;
-        stmt->where.has_where = 1;
-
-        /* 컬럼명 */
-        if (pos >= count || (tokens[pos].type != TOKEN_IDENT && tokens[pos].type != TOKEN_KEYWORD)) {
-            return PARSE_WHERE_SYNTAX;
-        }
-        strncpy(stmt->where.column, tokens[pos].value, MAX_COL_NAME);
-        pos++;
-
-        /* = */
-        if (pos >= count || tokens[pos].type != TOKEN_EQUALS) {
-            return PARSE_WHERE_SYNTAX;
-        }
-        pos++;
-
-        /* 값 */
-        if (pos >= count) {
-            return PARSE_WHERE_SYNTAX;
-        }
-        strncpy(stmt->where.value, tokens[pos].value, MAX_VAL_STR);
+    if (!expect_keyword(parser, "FROM", error, error_size)) {
+        return 0;
     }
 
-    return PARSE_OK;
+    if (!parse_identifier(parser, statement->table_name, MAX_TABLE_NAME, error, error_size)) {
+        return 0;
+    }
+
+    if (!parse_where_clause(parser, statement, error, error_size)) {
+        return 0;
+    }
+
+    return 1;
 }
 
-/* ─── 공개 함수 ─── */
+static int parse_end(Parser *parser, char *error, int error_size) {
+    skip_spaces(parser);
 
-ParseResult parse_sql(const char *input, Statement *stmt) {
-    /* 초기화 */
-    memset(stmt, 0, sizeof(Statement));
-
-    /* 토크나이징 */
-    Token tokens[MAX_TOKENS];
-    int count = tokenize(input, tokens, MAX_TOKENS);
-
-    if (count == 0) {
-        return PARSE_UNRECOGNIZED;
+    if (*parser->cursor == ';') {
+        parser->cursor++;
     }
 
-    /* 첫 번째 토큰으로 문장 타입 결정 */
-    if (is_token_keyword(&tokens[0], "INSERT")) {
-        return parse_insert(tokens, count, stmt);
-    }
-    if (is_token_keyword(&tokens[0], "SELECT")) {
-        return parse_select(tokens, count, stmt);
+    skip_spaces(parser);
+    if (*parser->cursor != '\0') {
+        set_error(error, error_size, "Unexpected trailing characters");
+        return 0;
     }
 
-    return PARSE_UNRECOGNIZED;
+    return 1;
 }
 
-void print_parse_error(ParseResult result, const char *input) {
-    switch (result) {
-        case PARSE_UNRECOGNIZED:
-            printf("Error: Unrecognized command '%s'.\n", input);
-            printf("  Supported: INSERT, SELECT\n");
-            break;
-        case PARSE_SYNTAX_ERROR:
-            printf("Syntax error near '%s'.\n", input);
-            break;
-        case PARSE_MISSING_TABLE:
-            printf("Error: Missing table name.\n");
-            break;
-        case PARSE_MISSING_VALUES:
-            printf("Error: Missing VALUES keyword.\n");
-            printf("  Usage: INSERT INTO <table> VALUES (<id>, <name>, <email>);\n");
-            break;
-        case PARSE_INVALID_ID:
-            printf("Error: Invalid ID (must be a number).\n");
-            break;
-        case PARSE_STRING_TOO_LONG:
-            printf("Error: String too long.\n");
-            break;
-        case PARSE_MISSING_PAREN:
-            printf("Error: Missing parenthesis.\n");
-            printf("  Usage: INSERT INTO <table> VALUES (<id>, <name>, <email>);\n");
-            break;
-        case PARSE_TOO_FEW_VALUES:
-            printf("Error: Too few values. Expected: id, username, email.\n");
-            break;
-        case PARSE_WHERE_SYNTAX:
-            printf("Error: Invalid WHERE clause.\n");
-            printf("  Usage: SELECT FROM <table> WHERE <column> = <value>;\n");
-            break;
+int parse_sql(const char *input, Statement *statement, char *error, int error_size) {
+    Parser parser;
+
+    memset(statement, 0, sizeof(*statement));
+    parser.cursor = input;
+
+    skip_spaces(&parser);
+
+    if (match_keyword(&parser, "INSERT")) {
+        if (!parse_insert(&parser, statement, error, error_size)) {
+            return 0;
+        }
+    } else if (match_keyword(&parser, "SELECT")) {
+        if (!parse_select(&parser, statement, error, error_size)) {
+            return 0;
+        }
+    } else {
+        set_error(error, error_size, "Only INSERT and SELECT are supported");
+        return 0;
+    }
+
+    return parse_end(&parser, error, error_size);
+}
+
+const char *statement_type_name(StatementType type) {
+    switch (type) {
+        case STMT_INSERT:
+            return "INSERT";
+        case STMT_SELECT:
+            return "SELECT";
         default:
-            printf("Error: Unknown parse error.\n");
-            break;
+            return "UNKNOWN";
     }
 }
