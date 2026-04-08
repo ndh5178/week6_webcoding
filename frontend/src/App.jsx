@@ -4,68 +4,51 @@ import CliPanel from "./components/CliPanel";
 import ParseTreePanel from "./components/ParseTreePanel";
 import DateMatchApp from "./components/DateMatchApp";
 
-const DEFAULT_QUERY = "SELECT * FROM comments;";
 const DEFAULT_MESSAGE =
-  "왼쪽 CLI에서 SQL을 실행하면 파싱 트리와 서비스 패널이 함께 갱신됩니다.";
+  "Open the shell-backed terminal, let it launch the built SQL engine, then run SQL to update the parse tree and service panel.";
 
 export default function App() {
-  const [query, setQuery] = useState(DEFAULT_QUERY);
+  const [query, setQuery] = useState("");
   const [parseTree, setParseTree] = useState(null);
   const [rows, setRows] = useState([]);
   const [queryType, setQueryType] = useState("");
   const [message, setMessage] = useState(DEFAULT_MESSAGE);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [connectionState, setConnectionState] = useState("connecting");
 
-  async function handleRun(nextQuery) {
-    const trimmedQuery = String(nextQuery ?? "").trim();
+  function handleQueryStart(nextQuery) {
+    setQuery(nextQuery);
+    setLoading(true);
+    setError("");
+  }
 
-    setQuery(trimmedQuery);
+  function handleQueryResult(payload) {
+    setLoading(false);
+    setParseTree(payload.parseTree ?? null);
+    setRows(payload.rows ?? []);
+    setQueryType(payload.queryType ?? "");
+    setMessage(payload.message ?? "Executed.");
+    setError(payload.success === false ? payload.message ?? "Query failed." : "");
+  }
 
-    if (!trimmedQuery) {
-      setError("실행할 SQL을 입력해주세요.");
-      setMessage("빈 쿼리는 실행할 수 없습니다.");
-      setParseTree(null);
-      setRows([]);
-      setQueryType("");
+  function handleConnectionChange({ status, message: nextMessage }) {
+    setConnectionState(status);
+
+    if ((status === "connected" || status === "shell" || status === "connecting") && !query) {
+      setMessage(nextMessage || DEFAULT_MESSAGE);
+      if (status !== "connected") {
+        setError("");
+      }
       return;
     }
 
-    setLoading(true);
-    setError("");
-
-    try {
-      const response = await fetch("/api/query", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ query: trimmedQuery }),
-      });
-
-      const payload = await response.json();
-
-      if (!response.ok || payload.success === false) {
-        setParseTree(payload.parseTree ?? null);
-        setRows(payload.rows ?? []);
-        setQueryType(payload.queryType ?? "");
-        setMessage(payload.message ?? "쿼리 실행에 실패했습니다.");
-        setError(payload.message ?? "쿼리 실행에 실패했습니다.");
-        return;
-      }
-
-      setParseTree(payload.parseTree ?? null);
-      setRows(payload.rows ?? []);
-      setQueryType(payload.queryType ?? "");
-      setMessage(payload.message ?? "Executed.");
-    } catch (fetchError) {
-      setParseTree(null);
-      setRows([]);
-      setQueryType("");
-      setMessage("백엔드 연결에 실패했습니다.");
-      setError(fetchError.message || "백엔드 연결에 실패했습니다.");
-    } finally {
+    if (status === "error" || status === "disconnected" || status === "closed") {
       setLoading(false);
+      setError(nextMessage || "Backend terminal connection is not available.");
+      if (nextMessage) {
+        setMessage(nextMessage);
+      }
     }
   }
 
@@ -76,19 +59,46 @@ export default function App() {
           <p style={styles.eyebrow}>THREE-PANEL SQL DEMO</p>
           <h1 style={styles.title}>Cupid SQL Integration Page</h1>
         </div>
-        <p style={styles.subtitle}>
-          `semin` 브랜치의 CLI 입력 화면과 `gyugo` 브랜치의 Parse Tree
-          시각화를 현재 통합 페이지에 연결했습니다.
-        </p>
+        <div style={styles.heroMeta}>
+          <p style={styles.subtitle}>
+            The left panel now opens a real shell session in the project directory and launches the
+            built SQL engine inside that terminal.
+          </p>
+          <p style={styles.connection(connectionState)}>
+            Terminal: {formatConnectionLabel(connectionState)}
+          </p>
+        </div>
       </section>
 
       <section style={styles.grid}>
-        <CliPanel initialQuery={query} isRunning={loading} onRun={handleRun} />
+        <CliPanel
+          connectionState={connectionState}
+          onConnectionChange={handleConnectionChange}
+          onQueryResult={handleQueryResult}
+          onQueryStart={handleQueryStart}
+        />
         <ParseTreePanel parseTree={parseTree} />
         <DateMatchApp />
       </section>
     </main>
   );
+}
+
+function formatConnectionLabel(connectionState) {
+  switch (connectionState) {
+    case "connected":
+      return "Engine Ready";
+    case "shell":
+      return "Shell Ready";
+    case "error":
+      return "Engine Missing";
+    case "disconnected":
+      return "Disconnected";
+    case "closed":
+      return "Closed";
+    default:
+      return "Connecting";
+  }
 }
 
 const styles = {
@@ -108,6 +118,9 @@ const styles = {
     alignItems: "flex-start",
     marginBottom: "20px",
   },
+  heroMeta: {
+    maxWidth: "520px",
+  },
   eyebrow: {
     margin: 0,
     color: "#38bdf8",
@@ -123,11 +136,36 @@ const styles = {
   },
   subtitle: {
     margin: 0,
-    maxWidth: "520px",
     color: "#cbd5e1",
     lineHeight: 1.6,
     fontSize: "15px",
   },
+  connection: (connectionState) => ({
+    margin: "12px 0 0",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "8px",
+    padding: "8px 12px",
+    borderRadius: "999px",
+    background:
+      connectionState === "connected"
+        ? "rgba(16, 185, 129, 0.16)"
+        : connectionState === "shell"
+          ? "rgba(56, 189, 248, 0.16)"
+        : connectionState === "error"
+          ? "rgba(248, 113, 113, 0.16)"
+          : "rgba(148, 163, 184, 0.12)",
+    color:
+      connectionState === "connected"
+        ? "#bbf7d0"
+        : connectionState === "shell"
+          ? "#bae6fd"
+        : connectionState === "error"
+          ? "#fecaca"
+          : "#cbd5e1",
+    fontSize: "12px",
+    fontWeight: 700,
+  }),
   grid: {
     display: "grid",
     gridTemplateColumns: "1fr 1fr 1fr",
