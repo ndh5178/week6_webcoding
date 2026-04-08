@@ -17,8 +17,9 @@ const styles = {
   panel: {
     display: "flex",
     flexDirection: "column",
-    minHeight: 520,
+    minHeight: 0,
     height: "100%",
+    minWidth: 0,
     border: "1px solid #d7dee7",
     borderRadius: 18,
     background: "linear-gradient(180deg, #f8fbff 0%, #eef5fb 100%)",
@@ -52,11 +53,12 @@ const styles = {
   },
   content: {
     flex: 1,
+    minHeight: 0,
     padding: 20,
   },
   canvasFrame: {
     height: "100%",
-    minHeight: 430,
+    minHeight: 0,
     borderRadius: 18,
     overflow: "hidden",
     border: "1px solid #d7dee7",

@@ -426,7 +426,9 @@ export default function DateMatchApp({
 
 const S = {
   panel: {
-    minHeight: "720px",
+    height: "100%",
+    minHeight: 0,
+    minWidth: 0,
     display: "flex",
     flexDirection: "column",
     borderRadius: "24px",
@@ -457,6 +459,7 @@ const S = {
   },
   body: {
     flex: 1,
+    minHeight: 0,
     overflowY: "auto",
     padding: "0 16px 20px",
     display: "flex",

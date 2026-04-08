@@ -38,7 +38,7 @@ function executeQuery(query) {
 
     const child = spawn(ENGINE_PATH, [queryFile], {
       cwd: PROJECT_ROOT,
-      stdio: ["pipe", "pipe", "pipe"]
+      stdio: ["pipe", "pipe", "pipe"],
     });
 
     let stdout = "";
@@ -162,13 +162,8 @@ function createShellSession({ onData, onExit } = {}) {
 
 function getShellConfig() {
   if (process.platform === "win32") {
-    const powershell =
-      process.env.ComSpec && process.env.ComSpec.toLowerCase().includes("powershell")
-        ? process.env.ComSpec
-        : "powershell.exe";
-
     return {
-      file: powershell,
+      file: "powershell.exe",
       args: ["-NoLogo"],
       label: "PowerShell",
     };

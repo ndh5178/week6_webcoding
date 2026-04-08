@@ -37,9 +37,7 @@ export default function App() {
 
     if ((status === "connected" || status === "shell" || status === "connecting") && !query) {
       setMessage(nextMessage || DEFAULT_MESSAGE);
-      if (status !== "error") {
-        setError("");
-      }
+      setError("");
       return;
     }
 
