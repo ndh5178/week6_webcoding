@@ -2,7 +2,7 @@ import { useState } from "react";
 
 import CliPanel from "./components/CliPanel";
 import ParseTreePanel from "./components/ParseTreePanel";
-import ServicePanel from "./components/ServicePanel";
+import DateMatchApp from "./components/DateMatchApp";
 
 const DEFAULT_MESSAGE =
   "Open the shell-backed terminal, let it launch the built SQL engine, then run SQL to update the parse tree and service panel.";
@@ -78,13 +78,7 @@ export default function App() {
           onQueryStart={handleQueryStart}
         />
         <ParseTreePanel parseTree={parseTree} />
-        <ServicePanel
-          rows={rows}
-          queryType={queryType}
-          message={message}
-          loading={loading}
-          error={error}
-        />
+        <DateMatchApp />
       </section>
     </main>
   );
