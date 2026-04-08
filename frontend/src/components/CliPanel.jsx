@@ -1,65 +1,40 @@
-import React, { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Terminal } from "xterm";
+import { FitAddon } from "xterm-addon-fit";
+import "xterm/css/xterm.css";
 
 const DEFAULT_EXAMPLES = [
   {
-    label: "INSERT 예제",
+    label: "INSERT demo",
     query: "INSERT INTO comments VALUES (1, 'kim', 'hello');",
   },
   {
-    label: "SELECT 전체",
+    label: "SELECT all",
     query: "SELECT * FROM comments;",
   },
   {
-    label: "SELECT WHERE",
-    query: "SELECT author, content FROM comments WHERE author = 'kim';",
+    label: "SELECT where",
+    query: "SELECT author, content FROM comments WHERE id = 1;",
   },
 ];
 
-const panelStyle = {
-  display: "flex",
-  flexDirection: "column",
-  gap: "16px",
-  height: "100%",
-  padding: "20px",
-  background: "#0f172a",
-  color: "#e5eefc",
-};
-
-const cardStyle = {
-  background: "#111c34",
-  border: "1px solid #223250",
-  borderRadius: "14px",
-  padding: "16px",
-};
-
-const buttonStyle = {
-  border: "1px solid #31486f",
-  background: "#16233f",
-  color: "#dbeafe",
-  borderRadius: "10px",
-  padding: "10px 12px",
-  fontSize: "13px",
-  fontWeight: 600,
-  cursor: "pointer",
-};
-
-function formatHistoryLabel(query, index) {
-  const singleLine = query.replace(/\s+/g, " ").trim();
-  if (singleLine.length <= 64) {
-    return `${index + 1}. ${singleLine}`;
-  }
-  return `${index + 1}. ${singleLine.slice(0, 61)}...`;
-}
-
 export default function CliPanel({
-  onRun,
-  isRunning = false,
   examples = DEFAULT_EXAMPLES,
-  initialQuery = "",
+  connectionState = "connecting",
+  onConnectionChange,
+  onQueryResult,
+  onQueryStart,
 }) {
-  const [query, setQuery] = useState(initialQuery);
-  const [history, setHistory] = useState([]);
-  const isRunnable = typeof onRun === "function";
+  const mountRef = useRef(null);
+  const terminalRef = useRef(null);
+  const fitAddonRef = useRef(null);
+  const resizeObserverRef = useRef(null);
+  const socketRef = useRef(null);
+  const onConnectionChangeRef = useRef(onConnectionChange);
+  const onQueryResultRef = useRef(onQueryResult);
+  const onQueryStartRef = useRef(onQueryStart);
+  const [statusMessage, setStatusMessage] = useState("Opening a shell-backed terminal...");
+  const [sessionMeta, setSessionMeta] = useState(null);
 
   const normalizedExamples = useMemo(
     () => (Array.isArray(examples) && examples.length > 0 ? examples : DEFAULT_EXAMPLES),
@@ -67,71 +42,226 @@ export default function CliPanel({
   );
 
   useEffect(() => {
-    setQuery(initialQuery || "");
-  }, [initialQuery]);
+    onConnectionChangeRef.current = onConnectionChange;
+  }, [onConnectionChange]);
 
-  function submitQuery(nextQuery) {
-    const trimmed = nextQuery.trim();
+  useEffect(() => {
+    onQueryResultRef.current = onQueryResult;
+  }, [onQueryResult]);
 
-    if (!trimmed || !isRunnable || isRunning) {
+  useEffect(() => {
+    onQueryStartRef.current = onQueryStart;
+  }, [onQueryStart]);
+
+  useEffect(() => {
+    const mountNode = mountRef.current;
+
+    if (!mountNode) {
+      return undefined;
+    }
+
+    const terminal = new Terminal({
+      cursorBlink: true,
+      fontFamily: "Consolas, 'JetBrains Mono', monospace",
+      fontSize: 14,
+      lineHeight: 1.45,
+      allowTransparency: true,
+      convertEol: false,
+      theme: {
+        background: "#08111f",
+        foreground: "#e2e8f0",
+        cursor: "#38bdf8",
+        selectionBackground: "rgba(56, 189, 248, 0.25)",
+        brightBlue: "#93c5fd",
+        brightGreen: "#86efac",
+        brightRed: "#fca5a5",
+        brightYellow: "#fde68a",
+      },
+    });
+
+    const fitAddon = new FitAddon();
+    terminal.loadAddon(fitAddon);
+    terminal.open(mountNode);
+    fitAddon.fit();
+    terminal.focus();
+
+    terminalRef.current = terminal;
+    fitAddonRef.current = fitAddon;
+
+    const syncTerminalSize = () => {
+      fitAddon.fit();
+
+      const socket = socketRef.current;
+      if (socket?.readyState === WebSocket.OPEN) {
+        socket.send(
+          JSON.stringify({
+            type: "terminal-resize",
+            cols: terminal.cols,
+            rows: terminal.rows,
+          }),
+        );
+      }
+    };
+
+    const resizeObserver = new ResizeObserver(() => {
+      syncTerminalSize();
+    });
+
+    resizeObserver.observe(mountNode);
+    resizeObserverRef.current = resizeObserver;
+
+    const handleWindowResize = () => {
+      syncTerminalSize();
+    };
+
+    window.addEventListener("resize", handleWindowResize);
+
+    const terminalInput = terminal.onData((data) => {
+      const socket = socketRef.current;
+
+      if (!socket || socket.readyState !== WebSocket.OPEN) {
+        terminal.bell();
+        return;
+      }
+
+      socket.send(JSON.stringify({ type: "terminal-input", data }));
+    });
+
+    const socket = new WebSocket(buildWebSocketUrl());
+    socketRef.current = socket;
+
+    socket.onopen = () => {
+      setStatusMessage("Shell transport connected. Waiting for prompt...");
+      syncTerminalSize();
+    };
+
+    socket.onmessage = (event) => {
+      let message;
+
+      try {
+        message = JSON.parse(event.data);
+      } catch (_error) {
+        terminal.writeln("");
+        terminal.writeln("[backend] Received a non-JSON WebSocket payload.");
+        return;
+      }
+
+      if (message.type === "session-ready") {
+        setSessionMeta(message.engine || null);
+        setStatusMessage(message.message || "Terminal session created.");
+        onConnectionChangeRef.current?.({
+          status: message.ready ? "connecting" : "error",
+          message: message.message || "Terminal session created.",
+        });
+        return;
+      }
+
+      if (message.type === "session-status") {
+        setStatusMessage(message.message || "Terminal state changed.");
+        onConnectionChangeRef.current?.({
+          status: normalizeConnectionStatus(message.status),
+          message: message.message || "Terminal state changed.",
+        });
+        return;
+      }
+
+      if (message.type === "terminal-output") {
+        terminal.write(message.data);
+        return;
+      }
+
+      if (message.type === "query-started") {
+        setStatusMessage(`Running: ${message.query}`);
+        onQueryStartRef.current?.(message.query);
+        return;
+      }
+
+      if (message.type === "query-result") {
+        setStatusMessage(message.payload?.message || "Query finished.");
+        onQueryResultRef.current?.(message.payload || {});
+        return;
+      }
+
+      if (message.type === "system-error") {
+        setStatusMessage(message.message || "Backend terminal error.");
+        onConnectionChangeRef.current?.({
+          status: "error",
+          message: message.message || "Backend terminal error.",
+        });
+      }
+    };
+
+    socket.onerror = () => {
+      setStatusMessage("Failed to connect to the backend WebSocket.");
+      onConnectionChangeRef.current?.({
+        status: "error",
+        message: "Failed to connect to the backend WebSocket.",
+      });
+    };
+
+    socket.onclose = () => {
+      setStatusMessage("Terminal connection closed.");
+      onConnectionChangeRef.current?.({
+        status: "disconnected",
+        message: "Terminal connection closed.",
+      });
+    };
+
+    return () => {
+      terminalInput.dispose();
+      resizeObserver.disconnect();
+      window.removeEventListener("resize", handleWindowResize);
+      socket.close();
+      terminal.dispose();
+      terminalRef.current = null;
+      fitAddonRef.current = null;
+      resizeObserverRef.current = null;
+      socketRef.current = null;
+    };
+  }, []);
+
+  function handleExampleClick(query) {
+    const socket = socketRef.current;
+
+    if (!socket || socket.readyState !== WebSocket.OPEN || connectionState !== "connected") {
       return;
     }
 
-    setHistory((prev) => {
-      const withoutDuplicate = prev.filter((item) => item !== trimmed);
-      return [trimmed, ...withoutDuplicate].slice(0, 8);
-    });
+    socket.send(
+      JSON.stringify({
+        type: "run-query",
+        query,
+      }),
+    );
 
-    onRun(trimmed);
-  }
-
-  function handleSubmit(event) {
-    event.preventDefault();
-    submitQuery(query);
-  }
-
-  function handleExampleClick(exampleQuery) {
-    setQuery(exampleQuery);
-  }
-
-  function handleKeyDown(event) {
-    if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
-      event.preventDefault();
-      submitQuery(query);
-    }
+    terminalRef.current?.focus();
   }
 
   return (
-    <section style={panelStyle}>
-      <header style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-        <span
-          style={{
-            color: "#8fb3ff",
-            fontSize: "12px",
-            fontWeight: 700,
-            letterSpacing: "0.08em",
-          }}
-        >
-          INPUT ENTRY
-        </span>
-        <h2 style={{ margin: 0, fontSize: "24px" }}>CLI Panel</h2>
-        <p style={{ margin: 0, color: "#93a7c4", fontSize: "14px", lineHeight: 1.6 }}>
-          SQL 입력을 받고 실행 요청만 부모로 전달합니다. 실제 실행과 결과 처리는 이
-          패널 밖에서 이루어집니다.
+    <section style={styles.panel}>
+      <header style={styles.header}>
+        <span style={styles.eyebrow}>LIVE TERMINAL</span>
+        <h2 style={styles.title}>CLI Panel</h2>
+        <p style={styles.subtitle}>
+          This panel is attached to a real shell session. The shell opens in the project directory,
+          then launches the built SQL engine inside that terminal.
         </p>
       </header>
 
-      <div style={cardStyle}>
-        <div style={{ marginBottom: "12px", fontSize: "14px", fontWeight: 700 }}>
-          예제 SQL
+      <div style={styles.card}>
+        <div style={styles.cardHeader}>
+          <span style={styles.cardTitle}>Example SQL</span>
+          <span style={styles.cardBadge(connectionState)}>{formatConnectionLabel(connectionState)}</span>
         </div>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: "10px" }}>
+
+        <div style={styles.buttonRow}>
           {normalizedExamples.map((example) => (
             <button
               key={`${example.label}-${example.query}`}
               type="button"
+              disabled={connectionState !== "connected"}
               onClick={() => handleExampleClick(example.query)}
-              style={buttonStyle}
+              style={styles.exampleButton(connectionState === "connected")}
             >
               {example.label}
             </button>
@@ -139,99 +269,229 @@ export default function CliPanel({
         </div>
       </div>
 
-      <form
-        onSubmit={handleSubmit}
-        style={{
-          ...cardStyle,
-          display: "flex",
-          flexDirection: "column",
-          gap: "14px",
-          flex: 1,
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <div style={{ fontSize: "14px", fontWeight: 700 }}>SQL 입력</div>
-          <div style={{ color: "#7d92b3", fontSize: "12px" }}>Ctrl/Cmd + Enter로 실행</div>
+      <div style={styles.terminalCard}>
+        <div style={styles.terminalToolbar}>
+          <span style={styles.toolbarTitle}>Shell + SQL Engine</span>
+          <span style={styles.toolbarHint}>
+            {sessionMeta?.workingDirectory || "Waiting for shell path..."}
+          </span>
         </div>
 
-        <textarea
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder="예: SELECT * FROM comments;"
-          spellCheck={false}
-          style={{
-            width: "100%",
-            minHeight: "180px",
-            resize: "vertical",
-            borderRadius: "12px",
-            border: "1px solid #31486f",
-            background: "#08111f",
-            color: "#e5eefc",
-            padding: "14px",
-            fontSize: "14px",
-            lineHeight: 1.6,
-            fontFamily: "Consolas, 'JetBrains Mono', monospace",
-            outline: "none",
-            boxSizing: "border-box",
-          }}
+        <div
+          ref={mountRef}
+          style={styles.terminalViewport}
+          onClick={() => terminalRef.current?.focus()}
         />
-
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px" }}>
-          <div style={{ color: "#93a7c4", fontSize: "12px" }}>
-            공통 계약: <code>docs/contracts.md</code>
-            {!isRunnable ? " · 실행 핸들러 연결 대기 중" : ""}
-          </div>
-          <button
-            type="submit"
-            disabled={!query.trim() || isRunning || !isRunnable}
-            style={{
-              ...buttonStyle,
-              minWidth: "120px",
-              background: !query.trim() || isRunning || !isRunnable ? "#223250" : "#2563eb",
-              borderColor: !query.trim() || isRunning || !isRunnable ? "#31486f" : "#3b82f6",
-              color: "#ffffff",
-              cursor: !query.trim() || isRunning || !isRunnable ? "not-allowed" : "pointer",
-            }}
-          >
-            {isRunning ? "실행 중..." : "실행"}
-          </button>
-        </div>
-      </form>
-
-      <div style={{ ...cardStyle, display: "flex", flexDirection: "column", gap: "10px" }}>
-        <div style={{ fontSize: "14px", fontWeight: 700 }}>입력 히스토리</div>
-
-        {history.length === 0 ? (
-          <div style={{ color: "#7d92b3", fontSize: "13px", lineHeight: 1.6 }}>
-            아직 실행한 SQL이 없습니다. 예제 SQL을 선택하거나 직접 입력해보세요.
-          </div>
-        ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-            {history.map((item, index) => (
-              <button
-                key={`${item}-${index}`}
-                type="button"
-                onClick={() => setQuery(item)}
-                style={{
-                  textAlign: "left",
-                  border: "1px solid #223250",
-                  background: "#0b1629",
-                  color: "#dbeafe",
-                  borderRadius: "10px",
-                  padding: "10px 12px",
-                  cursor: "pointer",
-                  fontFamily: "Consolas, 'JetBrains Mono', monospace",
-                  fontSize: "12px",
-                }}
-                title={item}
-              >
-                {formatHistoryLabel(item, index)}
-              </button>
-            ))}
-          </div>
-        )}
       </div>
+
+      <footer style={styles.footer}>
+        <span style={styles.footerChip(connectionState)}>{formatConnectionLabel(connectionState)}</span>
+        <span style={styles.footerText}>{statusMessage}</span>
+      </footer>
     </section>
   );
 }
+
+function buildWebSocketUrl() {
+  const protocol = window.location.protocol === "https:" ? "wss" : "ws";
+  return `${protocol}://${window.location.host}/ws/terminal`;
+}
+
+function normalizeConnectionStatus(status) {
+  if (status === "connected") {
+    return "connected";
+  }
+
+  if (status === "shell") {
+    return "shell";
+  }
+
+  if (status === "launching") {
+    return "connecting";
+  }
+
+  if (status === "closed") {
+    return "closed";
+  }
+
+  if (status === "error") {
+    return "error";
+  }
+
+  return "connecting";
+}
+
+function formatConnectionLabel(connectionState) {
+  switch (connectionState) {
+    case "connected":
+      return "Engine Ready";
+    case "shell":
+      return "Shell Ready";
+    case "error":
+      return "Engine Error";
+    case "disconnected":
+      return "Disconnected";
+    case "closed":
+      return "Closed";
+    default:
+      return "Connecting";
+  }
+}
+
+const styles = {
+  panel: {
+    minHeight: 720,
+    display: "flex",
+    flexDirection: "column",
+    gap: 16,
+    padding: 20,
+    borderRadius: 24,
+    background: "rgba(15, 23, 42, 0.92)",
+    border: "1px solid rgba(148, 163, 184, 0.16)",
+    boxShadow: "0 18px 40px rgba(0, 0, 0, 0.25)",
+  },
+  header: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 6,
+  },
+  eyebrow: {
+    color: "#8fb3ff",
+    fontSize: 12,
+    fontWeight: 700,
+    letterSpacing: "0.12em",
+  },
+  title: {
+    margin: 0,
+    fontSize: 34,
+    fontWeight: 800,
+  },
+  subtitle: {
+    margin: 0,
+    color: "#93a7c4",
+    fontSize: 14,
+    lineHeight: 1.6,
+  },
+  card: {
+    background: "#111c34",
+    border: "1px solid #223250",
+    borderRadius: 14,
+    padding: 16,
+  },
+  cardHeader: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 12,
+    marginBottom: 12,
+  },
+  cardTitle: {
+    fontSize: 14,
+    fontWeight: 700,
+  },
+  cardBadge: (connectionState) => ({
+    padding: "6px 10px",
+    borderRadius: 999,
+    fontSize: 11,
+    fontWeight: 700,
+    background:
+      connectionState === "connected"
+        ? "rgba(16, 185, 129, 0.16)"
+        : connectionState === "shell"
+          ? "rgba(56, 189, 248, 0.16)"
+          : connectionState === "error"
+            ? "rgba(248, 113, 113, 0.16)"
+            : "rgba(51, 65, 85, 0.8)",
+    color:
+      connectionState === "connected"
+        ? "#bbf7d0"
+        : connectionState === "shell"
+          ? "#bae6fd"
+          : connectionState === "error"
+            ? "#fecaca"
+            : "#cbd5e1",
+  }),
+  buttonRow: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: 10,
+  },
+  exampleButton: (enabled) => ({
+    border: "1px solid #31486f",
+    background: enabled ? "#16233f" : "#172033",
+    color: enabled ? "#dbeafe" : "#6b7d9b",
+    borderRadius: 10,
+    padding: "10px 12px",
+    fontSize: 13,
+    fontWeight: 600,
+    cursor: enabled ? "pointer" : "not-allowed",
+  }),
+  terminalCard: {
+    flex: 1,
+    display: "flex",
+    flexDirection: "column",
+    minHeight: 0,
+    background: "#111c34",
+    border: "1px solid #223250",
+    borderRadius: 14,
+    overflow: "hidden",
+  },
+  terminalToolbar: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 12,
+    padding: "12px 14px",
+    borderBottom: "1px solid #223250",
+    background: "rgba(8, 17, 31, 0.85)",
+  },
+  toolbarTitle: {
+    fontSize: 14,
+    fontWeight: 700,
+  },
+  toolbarHint: {
+    color: "#7d92b3",
+    fontSize: 12,
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+  },
+  terminalViewport: {
+    flex: 1,
+    minHeight: 420,
+    padding: "12px 10px",
+    background: "#08111f",
+  },
+  footer: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 12,
+    color: "#94a3b8",
+    fontSize: 12,
+  },
+  footerChip: (connectionState) => ({
+    padding: "6px 10px",
+    borderRadius: 999,
+    background:
+      connectionState === "connected"
+        ? "rgba(16, 185, 129, 0.16)"
+        : connectionState === "shell"
+          ? "rgba(56, 189, 248, 0.16)"
+          : connectionState === "error"
+            ? "rgba(248, 113, 113, 0.16)"
+            : "rgba(51, 65, 85, 0.8)",
+    color:
+      connectionState === "connected"
+        ? "#bbf7d0"
+        : connectionState === "shell"
+          ? "#bae6fd"
+          : connectionState === "error"
+            ? "#fecaca"
+            : "#cbd5e1",
+    fontWeight: 700,
+  }),
+  footerText: {
+    textAlign: "right",
+  },
+};
