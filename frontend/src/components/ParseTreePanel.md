@@ -1,455 +1,573 @@
-# ParseTreePanel 백엔드 연결 가이드
+# ParseTreePanel 동작 설명
 
-## 1. 현재 상태
+## 한 줄 요약
 
-현재 `ParseTreePanel.jsx`는 React Flow 기반으로 구현되어 있다.
+2번 패널은 "SQL이 실제로 어떤 구조로 해석되었는가"를 보여주는 시각화 패널이다.  
+중요한 점은, 이 패널이 보여주는 것은 **실행 순서 자체**가 아니라 **쿼리의 구조와 관계**라는 점이다.
 
-이 컴포넌트는 직접 SQL을 실행하지 않는다.
-역할은 오직 하나다.
+현재 구현 기준으로 이 패널은:
 
-- 상위 컴포넌트가 넘겨준 `parseTree` 데이터를 받아서
-- React Flow의 `nodes`, `edges`로 변환한 뒤
-- 가운데 패널에 AST 그래프처럼 시각화해서 보여준다
+- 브라우저에서 직접 SQL을 해석하지 않는다.
+- backend가 만든 `parseTree` JSON을 받아서 보여준다.
+- 그 JSON을 React Flow 노드와 엣지로 변환해 AST처럼 시각화한다.
 
-즉, 실제 동작 흐름은 아래처럼 이어져야 한다.
+즉, 현재 화면에서 보이는 그래프는:
 
 ```text
-CliPanel
--> App.jsx
--> backend API
--> engine 실행
--> backend 응답
+사용자 입력 SQL
+-> backend가 query 문자열을 분석해서 parseTree 생성
+-> frontend가 parseTree를 React Flow 그래프로 렌더링
+```
+
+이다.
+
+---
+
+## 1. 이 패널이 실제로 보여주는 것
+
+이 패널은 "이 쿼리가 어떤 절들로 이루어져 있는가"를 보여준다.
+
+예를 들어 `SELECT author, content FROM comments WHERE id = 1;` 이 들어오면,
+패널은 대략 아래 구조를 보여준다.
+
+```text
+SELECT
+├─ COLUMNS
+├─ FROM
+└─ WHERE
+   ├─ COLUMN
+   └─ VALUE
+```
+
+즉 이 패널은 다음을 보여준다.
+
+- 루트 쿼리 타입
+  - `SELECT`
+  - `INSERT`
+- 절(clause) 단위 구조
+  - `COLUMNS`
+  - `FROM`
+  - `WHERE`
+  - `INTO`
+  - `VALUES`
+- 각 절에 속한 값
+  - 테이블 이름
+  - 컬럼 이름
+  - 조건 값
+  - INSERT 값 목록
+- 부모-자식 관계
+  - 어떤 항목이 어떤 절 아래에 속하는지
+
+왼쪽에서 오른쪽으로 갈수록 더 깊은 구조를 의미한다.  
+하지만 이것은 "실행 시간 순서"라기보다 "구조적 깊이"에 가깝다.
+
+---
+
+## 2. 이 패널이 보여주지 않는 것
+
+이 문서를 볼 때 가장 헷갈리기 쉬운 부분이 이 부분이다.
+
+현재 2번 패널은 다음을 **보여주지 않는다**.
+
+- C 엔진 내부의 진짜 AST 메모리 구조
+- parser가 만든 토큰 단위 상세 정보
+- executor의 실제 처리 순서
+- storage 파일 접근 순서
+- 최종 SELECT 결과 row 자체
+- 서비스 화면 데이터 변화
+
+즉, 지금 패널은 "엔진 내부 디버거 화면"이 아니라,
+**backend가 query 문자열을 바탕으로 만든 단순화된 query structure view** 이다.
+
+이 점이 중요하다.  
+현재 화면은 "실제 엔진이 처리한 쿼리 결과를 기반으로 backend가 정리한 구조"를 보여주지만,
+그 구조 자체는 아직 C 엔진이 직접 JSON AST를 내보내는 방식은 아니다.
+
+만약 앞으로 "진짜 엔진 AST"를 보여주고 싶다면, backend에서 정규식으로 `parseTree`를 만드는 현재 방식 대신:
+
+- C 엔진이 machine-readable JSON AST를 출력하게 하거나
+- backend가 엔진의 parser 결과를 더 정확하게 구조화해서 전달해야 한다.
+
+---
+
+## 3. 현재 전체 데이터 흐름
+
+현재 구현 기준의 실제 흐름은 아래와 같다.
+
+```text
+CliPanel (xterm.js)
+-> WebSocket
+-> backend/src/server.js
+-> sql-engine.exe 실행 결과 수집
+-> backend/src/protocol/responseProtocol.js
+-> parseTree 생성
+-> query-result payload 전송
 -> App.jsx 상태 갱신
--> ParseTreePanel.jsx
+-> ParseTreePanel.jsx 렌더링
 ```
 
-현재 저장소 기준으로는 아직 아래 연결이 비어 있다.
+조금 더 자세히 보면 아래 순서다.
 
-- `frontend/src/App.jsx`
-- `frontend/src/components/CliPanel.jsx`
-- `backend/src/server.js`
+1. 사용자가 왼쪽 CLI 패널에서 SQL을 입력한다.
+2. `CliPanel.jsx`가 입력을 WebSocket으로 backend에 보낸다.
+3. backend의 `server.js`가 실제 shell + `sql-engine.exe` 세션으로 query를 전달한다.
+4. 엔진 출력이 다시 `db >` 프롬프트로 돌아오면, backend는 "한 쿼리가 끝났다"고 판단한다.
+5. 그때 `buildResponsePayload(query, rawOutput)`를 호출해서 payload를 만든다.
+6. 이 payload 안에 `parseTree`, `rows`, `message`가 함께 들어간다.
+7. frontend의 `App.jsx`가 `query-result`를 받아 `parseTree` state를 업데이트한다.
+8. `ParseTreePanel.jsx`가 새 `parseTree`를 받아 React Flow 그래프로 다시 그린다.
 
-그래서 지금 `ParseTreePanel.jsx`는 "렌더링 준비는 완료"된 상태이고,
-"실제 쿼리 실행 후 데이터 연결"은 아직 구현되지 않은 상태다.
+즉, 2번 패널은 독립적으로 무언가를 계산하는 컴포넌트가 아니라,
+**backend가 이미 만들어서 보낸 구조를 읽기 전용으로 시각화하는 컴포넌트**다.
 
-## 2. ParseTreePanel이 기대하는 입력값
+---
 
-`ParseTreePanel.jsx`는 `parseTree` prop 하나를 받는다.
+## 4. backend는 어떤 규칙으로 parseTree를 만드는가
 
-예시:
+현재 `parseTree`는 `backend/src/protocol/responseProtocol.js` 안의 `buildParseTree(query)`에서 만들어진다.
 
-```jsx
-<ParseTreePanel parseTree={parseTree} />
+핵심은 다음 두 단계다.
+
+### 4-1. 쿼리 타입 판별
+
+먼저 `inferQueryType(query)`가 query가 어떤 유형인지 판단한다.
+
+- `INSERT`로 시작하면 `INSERT`
+- `SELECT`로 시작하면 `SELECT`
+- 그 외는 `UNKNOWN`
+
+즉, 현재 parse tree는 아주 제한된 SQL subset만 안정적으로 다룬다.
+
+### 4-2. 쿼리 문자열을 간단한 트리 JSON으로 변환
+
+현재는 정규식 기반으로 구조를 만든다.
+
+#### INSERT의 경우
+
+예시 SQL:
+
+```sql
+INSERT INTO comments VALUES (1, 'kim', 'hello');
 ```
 
-`parseTree`가 `null` 또는 `undefined`이면 빈 상태를 보여준다.
-
-```jsx
-<ParseTreePanel parseTree={null} />
-```
-
-`parseTree`가 객체이면 React Flow 그래프로 바꿔서 보여준다.
+backend가 만드는 구조:
 
 ```json
 {
-  "type": "SELECT",
-  "table": "comments",
-  "selectedColumns": ["author", "content"],
-  "where": {
-    "type": "WHERE",
-    "column": "id",
-    "operator": "=",
-    "value": "2"
-  },
+  "type": "INSERT",
   "children": [
+    { "type": "INTO", "value": "comments" },
     {
-      "type": "COLUMN",
-      "name": "author"
-    },
-    {
-      "type": "COLUMN",
-      "name": "content"
+      "type": "VALUES",
+      "children": [
+        { "type": "VALUE", "value": "1" },
+        { "type": "VALUE", "value": "kim" },
+        { "type": "VALUE", "value": "hello" }
+      ]
     }
   ]
 }
 ```
 
-## 3. 백엔드가 반드시 내려줘야 하는 응답 구조
+이 구조가 의미하는 것은 다음과 같다.
 
-`docs/contracts.md` 기준으로 프론트엔드는 아래 응답을 기대한다.
+- 루트는 `INSERT`
+- 그 아래에 어떤 테이블에 넣는지 나타내는 `INTO`
+- 실제 값 묶음을 나타내는 `VALUES`
+- `VALUES` 아래에는 각 값이 `VALUE` 노드로 매달림
 
-```json
-{
-  "success": true,
-  "queryType": "INSERT",
-  "message": "Executed.",
-  "parseTree": {
-    "type": "INSERT",
-    "children": []
-  },
-  "rows": [
-    {
-      "id": 1,
-      "author": "kim",
-      "content": "hello"
-    }
-  ]
-}
+즉, "INSERT 문을 구성하는 절과 값의 관계"를 보여준다.
+
+#### SELECT의 경우
+
+예시 SQL:
+
+```sql
+SELECT author, content FROM comments WHERE id = 1;
 ```
 
-여기서 역할은 이렇게 나뉜다.
-
-- `message`: CLI 실행 결과 메시지
-- `parseTree`: ParseTreePanel 전용 데이터
-- `rows`: ServicePanel 전용 데이터
-
-중요한 점:
-
-- `parseTree`는 반드시 JSON 직렬화 가능한 plain object 여야 한다
-- 순환 참조가 있으면 안 된다
-- 함수, 클래스 인스턴스, Map, Set 같은 특수 구조는 쓰지 않는 편이 안전하다
-- 가능한 한 `type`, `children`, `name`, `table`, `where` 같은 단순 구조를 유지하는 것이 좋다
-
-## 4. 실제 연결 순서
-
-실제 구현은 아래 순서대로 붙이면 된다.
-
-### Step 1. CliPanel에서 SQL 입력을 받는다
-
-`CliPanel.jsx`는 사용자가 SQL을 입력하고 실행 버튼을 누르면 상위로 쿼리를 넘겨야 한다.
-
-예시:
-
-```jsx
-export default function CliPanel({ onRunQuery }) {
-  const [query, setQuery] = useState("");
-
-  async function handleSubmit(event) {
-    event.preventDefault();
-    await onRunQuery(query);
-  }
-
-  return (
-    <form onSubmit={handleSubmit}>
-      <textarea value={query} onChange={(e) => setQuery(e.target.value)} />
-      <button type="submit">Run</button>
-    </form>
-  );
-}
-```
-
-핵심:
-
-- `CliPanel`은 입력 UI만 담당한다
-- 실제 fetch 호출을 `CliPanel` 안에 둘 수도 있지만, 현재 구조에서는 `App.jsx`가 통합 지점이므로 `onRunQuery` 콜백으로 위임하는 편이 깔끔하다
-
-### Step 2. App.jsx에서 공용 상태를 가진다
-
-`App.jsx`는 세 패널이 공유하는 상태를 가져야 한다.
-
-최소 상태 예시:
-
-```jsx
-const [queryResult, setQueryResult] = useState({
-  message: "",
-  parseTree: null,
-  rows: [],
-});
-```
-
-이 상태를 기준으로:
-
-- `message`는 CLI 패널에
-- `parseTree`는 ParseTreePanel에
-- `rows`는 ServicePanel에 넘긴다
-
-### Step 3. App.jsx에서 백엔드 API를 호출한다
-
-예시:
-
-```jsx
-async function handleRunQuery(query) {
-  const response = await fetch("/api/query", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ query }),
-  });
-
-  const data = await response.json();
-
-  setQueryResult({
-    message: data.message ?? "",
-    parseTree: data.parseTree ?? null,
-    rows: data.rows ?? [],
-  });
-}
-```
-
-핵심:
-
-- `App.jsx`가 백엔드 응답을 받아서 세 패널의 공용 상태를 갱신한다
-- `parseTree`는 여기서 바로 `ParseTreePanel`로 전달된다
-
-### Step 4. backend/src/server.js에서 API를 만든다
-
-현재 `backend/src/server.js`는 placeholder 상태다.
-여기서 최소한 `/api/query` 엔드포인트는 만들어야 한다.
-
-예시 구조:
-
-```js
-import express from "express";
-
-const app = express();
-app.use(express.json());
-
-app.post("/api/query", async (req, res) => {
-  const { query } = req.body;
-
-  // 1. engine 실행
-  // 2. stdout 또는 결과 파일 읽기
-  // 3. parseTree / rows / message 로 변환
-
-  res.json({
-    success: true,
-    queryType: "SELECT",
-    message: "Executed.",
-    parseTree: {
-      type: "SELECT",
-      table: "comments",
-      children: [],
-    },
-    rows: [],
-  });
-});
-
-app.listen(3001);
-```
-
-핵심:
-
-- 백엔드는 프론트가 그대로 쓸 수 있는 `parseTree`를 내려줘야 한다
-- 프론트에서 엔진 stdout 문자열을 다시 파싱하게 만들면 안 된다
-- 가능하면 백엔드에서 이미 구조화된 JSON으로 변환해서 넘기는 것이 맞다
-
-### Step 5. backend에서 engine 결과를 parseTree로 변환한다
-
-여기가 실질적인 통합 지점이다.
-
-가능한 방식은 두 가지다.
-
-1. 엔진이 처음부터 machine-readable JSON을 출력하게 만든다
-2. 엔진이 텍스트를 출력하면 backend protocol parser가 이를 JSON으로 바꾼다
-
-현재 문서 기준으로는 2번도 허용된다.
-
-예를 들어 엔진이 내부적으로 아래 의미를 알고 있다면:
-
-```text
-SELECT author, content FROM comments WHERE id = 2;
-```
-
-백엔드는 이를 이런 구조로 바꿔줄 수 있다.
+backend가 만드는 구조:
 
 ```json
 {
   "type": "SELECT",
-  "table": "comments",
-  "selectedColumns": ["author", "content"],
-  "where": {
-    "type": "WHERE",
-    "column": "id",
-    "operator": "=",
-    "value": "2"
-  },
   "children": [
-    {
-      "type": "COLUMN",
-      "name": "author"
-    },
-    {
-      "type": "COLUMN",
-      "name": "content"
-    },
+    { "type": "COLUMNS", "value": "author, content" },
+    { "type": "FROM", "value": "comments" },
     {
       "type": "WHERE",
-      "column": "id",
-      "operator": "=",
-      "value": "2"
+      "children": [
+        { "type": "COLUMN", "value": "id" },
+        { "type": "VALUE", "value": "1" }
+      ]
     }
   ]
 }
 ```
 
-이렇게 만들어진 객체가 그대로 `ParseTreePanel`에 전달된다.
+이 구조가 의미하는 것은 다음과 같다.
 
-## 5. ParseTreePanel 내부에서 이 데이터를 어떻게 그리는가
+- 루트는 `SELECT`
+- 어떤 컬럼을 읽는지 `COLUMNS`
+- 어느 테이블에서 읽는지 `FROM`
+- 조건이 있으면 `WHERE`
+- `WHERE` 아래에는 비교 대상 컬럼과 값이 들어감
 
-현재 `ParseTreePanel.jsx`는 들어온 `parseTree`를 다음 순서로 처리한다.
+즉, 현재 패널은 "SELECT 문이 어떤 주요 절로 나뉘는가"를 보여주는 형태다.
 
-### 5-1. `buildFlowGraph(parseTree)` 호출
+---
 
-루트 객체를 기준으로 전체 트리를 훑는다.
+## 5. 이 패널은 실패한 쿼리에서도 구조를 보여줄 수 있다
 
-- 루트 노드 생성
-- 자식 노드 생성
-- 부모-자식 간 edge 생성
+현재 backend는 `buildResponsePayload(query, rawOutput)`를 만들 때,
+실행 에러가 있어도 `parseTree`는 가능한 한 같이 넣는다.
 
-### 5-2. 스칼라 값은 노드 안의 메타데이터로 표시
+즉 예를 들어:
 
-예:
+- SQL 실행은 실패했지만
+- query 문자열 자체는 `SELECT ... FROM ... WHERE ...` 형태로 인식 가능하다면
 
-- `table: "comments"`
-- `operator: "="`
-- `value: "2"`
+2번 패널에는 query structure가 계속 보일 수 있다.
 
-이런 값은 노드 카드 안의 key-value 영역에 들어간다.
+이 말은 곧:
 
-### 5-3. 중첩 객체는 별도 노드로 분리
+- 2번 패널은 "실행 성공 여부"만을 보여주는 패널이 아니고
+- "사용자가 어떤 구조의 쿼리를 시도했는가"를 보여주는 패널이기도 하다
 
-예:
+는 뜻이다.
 
-- `where`
-- 내부 object
+그래서 오른쪽 서비스 패널의 결과가 비어 있어도,
+2번 패널은 여전히 구조를 보여줄 수 있다.
 
-이런 값은 오른쪽 자식 노드로 확장된다.
+---
 
-### 5-4. 배열은 여러 child node로 펼친다
+## 6. frontend는 이 parseTree를 어떻게 React Flow로 바꾸는가
 
-예:
+`ParseTreePanel.jsx`는 `parseTree`를 그대로 그리는 것이 아니라,
+중간에 React Flow용 데이터로 변환한다.
 
-- `children`
-- `selectedColumns`
-
-이런 배열은 각 항목을 개별 노드 또는 리프 항목으로 분해한다.
-
-### 5-5. ReactFlow가 최종 다이어그램을 그린다
-
-최종적으로 `ReactFlow`에 아래 값이 들어간다.
-
-```jsx
-<ReactFlow
-  nodes={flowGraph.nodes}
-  edges={flowGraph.edges}
-  nodeTypes={nodeTypes}
-  fitView
->
-  <Background />
-  <Controls />
-</ReactFlow>
-```
-
-즉, 백엔드가 내려준 `parseTree` 객체가 곧 다이어그램의 원재료다.
-
-## 6. App.jsx 최종 연결 예시
-
-아래처럼 연결하면 흐름이 완성된다.
-
-```jsx
-import { useState } from "react";
-import CliPanel from "./components/CliPanel.jsx";
-import ParseTreePanel from "./components/ParseTreePanel.jsx";
-import ServicePanel from "./components/ServicePanel.jsx";
-
-export default function App() {
-  const [result, setResult] = useState({
-    message: "",
-    parseTree: null,
-    rows: [],
-  });
-
-  async function handleRunQuery(query) {
-    const response = await fetch("/api/query", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query }),
-    });
-
-    const data = await response.json();
-
-    setResult({
-      message: data.message ?? "",
-      parseTree: data.parseTree ?? null,
-      rows: data.rows ?? [],
-    });
-  }
-
-  return (
-    <main>
-      <CliPanel onRunQuery={handleRunQuery} message={result.message} />
-      <ParseTreePanel parseTree={result.parseTree} />
-      <ServicePanel rows={result.rows} />
-    </main>
-  );
-}
-```
-
-이 흐름이 완성되면:
-
-1. 사용자가 `CliPanel`에서 SQL 입력
-2. `App.jsx`가 `/api/query` 호출
-3. backend가 engine 실행
-4. backend가 `parseTree`, `rows`, `message` 생성
-5. `App.jsx` 상태 갱신
-6. `ParseTreePanel.jsx`가 React Flow 그래프로 즉시 갱신
-
-## 7. 에러 케이스 처리 방법
-
-실제 연결 시에는 실패 응답도 반드시 생각해야 한다.
-
-예:
-
-```json
-{
-  "success": false,
-  "message": "Value count does not match schema",
-  "parseTree": null,
-  "rows": []
-}
-```
-
-권장 동작:
-
-- 실패 시 `message`는 CLI 영역에 보여준다
-- `parseTree`는 `null`로 유지하거나, 이전 성공 결과를 유지할지 정책을 정한다
-- `rows`는 비우거나 이전 결과 유지 여부를 명확히 정한다
-
-가장 단순한 정책은 아래다.
-
-- 성공 시: `message`, `parseTree`, `rows` 모두 갱신
-- 실패 시: `message`만 갱신하고 `parseTree`, `rows`는 유지 또는 초기화
-
-팀 기준 계약을 먼저 정하고 맞추는 것이 좋다.
-
-## 8. 지금 바로 확인할 수 있는 테스트 방법
-
-실제 백엔드 연결 전에 수동 확인은 `playgrounds/parse-tree-preview`에서 가능하다.
-
-이 preview 앱은 현재 `ParseTreePanel.jsx`를 그대로 import해서 mock 데이터를 넣어 보여준다.
-
-실행:
-
-```powershell
-cd D:\jungleCamp\Projects\sqlProcessor\playgrounds\parse-tree-preview
-npm.cmd run dev -- --host 127.0.0.1 --port 4173
-```
-
-브라우저:
+큰 흐름은 아래와 같다.
 
 ```text
-http://127.0.0.1:4173
+parseTree JSON
+-> createDescriptor()
+-> buildFlowGraph()
+-> nodes / edges 생성
+-> ReactFlow 렌더링
 ```
 
-여기서 확인되는 것은:
+### 6-1. `createDescriptor()`
 
-- 빈 상태 렌더링
-- INSERT parse tree 렌더링
-- SELECT parse tree 렌더링
+이 함수는 입력 데이터를 "렌더링용 중간 구조"로 바꾼다.
 
-즉, 지금 preview는 "백엔드 연결 전 시각화 검증 도구" 역할이다.
+여기서 하는 일은 다음과 같다.
 
-## 9. 한 줄 정리
+- scalar 값이면
+  - 현재 노드의 메타데이터로 보여줄지
+  - 별도의 leaf 성격 노드로 만들지 정리
+- object면
+  - 제목(`title`)
+  - 라벨(`label`)
+  - 메타데이터(`meta`)
+  - 자식(`children`)
+  로 분해
+- array면
+  - 각 원소를 child node로 분해
 
-실제 연결에서 가장 중요한 것은 `backend`가 엔진 결과를 프론트가 바로 쓸 수 있는 `parseTree` JSON으로 만들어 주고, `App.jsx`가 그 값을 `ParseTreePanel.jsx`에 그대로 넘겨주는 구조를 지키는 것이다.
+예를 들어:
+
+- `type: "SELECT"`는 노드 제목 후보가 된다.
+- `value: "comments"`는 메타데이터로 표시될 수 있다.
+- `children: [...]`는 실제 엣지로 연결되는 자식 노드가 된다.
+
+### 6-2. `getHeading()`
+
+각 노드 카드의 제목을 정한다.
+
+우선순위는 대략 아래와 같다.
+
+1. `type`
+2. `kind`
+3. `name`
+4. 없으면 relation label 사용
+
+그래서 대부분의 현재 parse tree에서는 `type` 값이 카드 제목으로 보인다.
+
+예:
+
+- `SELECT`
+- `WHERE`
+- `VALUE`
+
+### 6-3. `getScalarEntries()`
+
+단순 문자열, 숫자, boolean, null 값은 key-value 메타데이터로 추린다.
+
+예를 들어:
+
+```json
+{ "type": "FROM", "value": "comments" }
+```
+
+이면,
+
+- 제목은 `FROM`
+- 메타데이터는 `value = comments`
+
+처럼 카드 안에 표시된다.
+
+### 6-4. `getNestedEntries()`와 `normalizeChildren()`
+
+중첩 object나 array는 자식 노드로 분리한다.
+
+즉:
+
+- object 속 object
+- object 속 array
+- 명시적인 `children`
+
+이런 구조는 오른쪽으로 뻗는 브랜치가 된다.
+
+이때 edge 라벨은:
+
+- 속성명이 있으면 그 속성명
+- `children`이면 `Child 1`, `Child 2`
+- 배열이면 `Item 1`, `Item 2`
+
+형태로 붙는다.
+
+### 6-5. `layoutDescriptor()`
+
+이 함수는 실제 노드 위치를 계산한다.
+
+- 깊이(depth)가 깊을수록 오른쪽으로 이동
+- leaf 분포를 기준으로 세로 위치 계산
+
+즉 현재 레이아웃은:
+
+- 가로축 = 구조적 깊이
+- 세로축 = 형제 노드 분산
+
+으로 보면 된다.
+
+그래서 이 화면은 "타임라인"이 아니라 "계층 그래프"다.
+
+### 6-6. `ReactFlow`
+
+최종적으로 `nodes`와 `edges`를 `ReactFlow`에 넘겨서 화면에 그린다.
+
+이 단계에서는:
+
+- 확대/축소
+- 이동
+- 배경 그리드
+- 컨트롤 버튼
+
+이 제공되지만, 노드를 직접 편집하는 기능은 넣지 않았다.
+
+즉 2번 패널은 편집기가 아니라 **읽기 전용 시각화 뷰어**다.
+
+---
+
+## 7. 이 그래프를 "로직 흐름"으로 읽는 방법
+
+사용자가 "2번 패널의 로직 흐름"을 이해할 때는 아래처럼 읽으면 된다.
+
+### 7-1. 루트 노드
+
+가장 왼쪽 루트 노드는 "이 쿼리가 무엇을 하려는가"를 나타낸다.
+
+- `SELECT`
+- `INSERT`
+
+즉 쿼리의 최상위 의도다.
+
+### 7-2. 첫 번째 레벨 자식
+
+루트 바로 오른쪽의 노드들은 "이 쿼리를 구성하는 주요 절"이다.
+
+예:
+
+- `COLUMNS`
+- `FROM`
+- `WHERE`
+- `INTO`
+- `VALUES`
+
+즉 이 단계는 "큰 문장 덩어리"를 의미한다.
+
+### 7-3. 더 깊은 자식
+
+그 다음 깊이의 노드들은 각 절의 내부 구성 요소다.
+
+예:
+
+- WHERE 아래의 `COLUMN`, `VALUE`
+- VALUES 아래의 여러 `VALUE`
+
+즉 이 단계는 "각 절을 이루는 실제 구성값"에 해당한다.
+
+### 7-4. 카드 안 메타데이터
+
+노드 안에 보이는 key-value는 그 노드의 속성이다.
+
+예:
+
+- `value = comments`
+- `value = author, content`
+- `value = 1`
+
+즉 카드 제목은 "역할", 카드 내부 값은 "실제 데이터"라고 생각하면 된다.
+
+### 7-5. 엣지
+
+노드 사이 선은 "실행 순서"보다 "포함 관계" 또는 "구성 관계"를 뜻한다.
+
+예:
+
+- `SELECT -> WHERE`
+  - SELECT 쿼리의 일부로 WHERE 절이 포함된다
+- `WHERE -> COLUMN`
+  - WHERE 조건이 어떤 컬럼을 기준으로 하는지
+- `WHERE -> VALUE`
+  - WHERE 조건이 어떤 값을 비교하는지
+
+즉 현재 2번 패널은 **제어 흐름도(flowchart)** 에 가깝다기보다,
+**구조도(structure graph)** 로 이해하는 것이 맞다.
+
+---
+
+## 8. 현재 패널을 볼 때 꼭 알아야 하는 제한사항
+
+현재 구현은 데모 목적에 맞춘 간단한 구조다. 그래서 제한이 있다.
+
+### 8-1. SQL 지원 범위가 좁다
+
+현재 `buildParseTree(query)`는 정규식 기반이다.
+
+즉 안정적으로 다루는 것은 주로:
+
+- 단순 `INSERT INTO ... VALUES (...)`
+- 단순 `SELECT ... FROM ...`
+- 단순 `WHERE column = value`
+
+정도다.
+
+복잡한 SQL은 현재 패널 구조와 맞지 않을 수 있다.
+
+예:
+
+- JOIN
+- AND / OR 복합 조건
+- 중첩 SELECT
+- 함수 호출
+- ORDER BY
+- GROUP BY
+
+이런 문장은 현재 parse tree가 빈 구조이거나 불완전하게 보일 수 있다.
+
+### 8-2. 실제 엔진 AST와 1:1 대응이 아니다
+
+현재 패널은 backend가 별도로 만든 구조다.
+
+즉:
+
+- 엔진이 내부적으로 어떻게 parsing했는지
+- executor가 어떤 순서로 처리했는지
+
+를 그대로 반영하는 것은 아니다.
+
+### 8-3. 패널 2는 읽기 전용이다
+
+이 패널에서 노드를 수정해도 query가 바뀌지 않는다.
+
+즉 이 패널은:
+
+- 입력 패널이 아니고
+- 편집 패널이 아니며
+- 결과 구조를 읽어보는 패널이다
+
+---
+
+## 9. 실제 디버깅할 때 어디를 보면 되는가
+
+2번 패널이 비어 있거나 기대한 모양이 안 나오면 아래 순서로 확인하면 된다.
+
+### 9-1. `CliPanel.jsx`
+
+확인할 것:
+
+- `query-started`
+- `query-result`
+
+이벤트가 정상으로 오는지
+
+즉 쿼리가 frontend에서 backend로 잘 전달되는지 먼저 본다.
+
+### 9-2. `backend/src/server.js`
+
+확인할 것:
+
+- query가 실제 엔진으로 들어갔는지
+- `pendingOutput`이 쌓이는지
+- `db >` 프롬프트 복귀 시 `buildResponsePayload()`가 호출되는지
+
+즉 backend가 "한 쿼리 종료"를 제대로 감지하는지 본다.
+
+### 9-3. `backend/src/protocol/responseProtocol.js`
+
+확인할 것:
+
+- `buildParseTree(query)`가 원하는 구조를 반환하는지
+- 현재 SQL 문법이 정규식 규칙과 맞는지
+
+즉 parse tree 자체를 누가 만들고 있는지 보는 핵심 파일이다.
+
+### 9-4. `App.jsx`
+
+확인할 것:
+
+- `handleQueryResult(payload)`에서 `setParseTree(payload.parseTree ?? null)`가 호출되는지
+
+즉 backend가 준 값을 frontend 공용 상태에 넣고 있는지 확인한다.
+
+### 9-5. `ParseTreePanel.jsx`
+
+확인할 것:
+
+- `parseTree`가 `null`인지
+- `buildFlowGraph(parseTree)` 결과가 정상인지
+- `nodes`, `edges`가 생성되는지
+
+즉 마지막 렌더링 단계 문제인지 확인한다.
+
+---
+
+## 10. 정리
+
+현재 2번 패널은 "실행 흐름도"라기보다 "쿼리 구조도"다.
+
+정확히 말하면:
+
+- 사용자가 입력한 SQL을 backend가 단순 parse tree JSON으로 바꾸고
+- frontend가 그 JSON을 React Flow 그래프로 변환해
+- 사람이 보기 쉬운 AST 형태로 보여주는 패널
+
+이다.
+
+따라서 지금 패널을 해석할 때는:
+
+- 루트 = 쿼리의 최상위 의도
+- 중간 노드 = 주요 절
+- 리프/메타데이터 = 실제 값
+- 엣지 = 포함 관계
+
+로 읽으면 된다.
+
+만약 앞으로 이 패널을 더 발전시키고 싶다면 다음 방향이 자연스럽다.
+
+1. backend의 정규식 기반 `buildParseTree()`를 확장한다.
+2. 또는 C 엔진이 직접 JSON AST를 내보내게 만든다.
+3. 그 AST를 ParseTreePanel이 그대로 받아 더 정확한 구조를 그리게 한다.
+
+현재 문서 기준으로는, 이 패널은 **"backend가 만든 쿼리 구조를 React Flow로 보여주는 읽기 전용 구조 시각화 패널"** 이라고 이해하면 가장 정확하다.
