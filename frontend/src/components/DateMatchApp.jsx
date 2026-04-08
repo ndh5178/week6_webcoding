@@ -95,9 +95,14 @@ async function runQuery(query) {
   return payload;
 }
 
-export default function DateMatchApp() {
+export default function DateMatchApp({
+  rows = [],
+  queryType = "",
+  loading: parentLoading = false,
+  error: parentError = "",
+}) {
   const [form, setForm] = useState({ name: "", mbti: "", hobby: "" });
-  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(true);
   const [results, setResults] = useState(null);
   const [profiles, setProfiles] = useState([]);
   const [error, setError] = useState("");
@@ -107,7 +112,7 @@ export default function DateMatchApp() {
 
     async function loadProfiles() {
       try {
-        setLoading(true);
+        setSaving(true);
         setError("");
 
         const payload = await runQuery("SELECT * FROM profiles;");
@@ -120,7 +125,7 @@ export default function DateMatchApp() {
         }
       } finally {
         if (!cancelled) {
-          setLoading(false);
+          setSaving(false);
         }
       }
     }
@@ -131,6 +136,16 @@ export default function DateMatchApp() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (queryType !== "SELECT") {
+      return;
+    }
+
+    setProfiles(normalizeProfiles(rows));
+    setResults(null);
+    setError(parentError || "");
+  }, [rows, queryType, parentError]);
 
   async function handleSubmit(event) {
     event.preventDefault();
@@ -149,7 +164,7 @@ export default function DateMatchApp() {
     )}', '${escapeSqlValue(hobby)}');`;
 
     try {
-      setLoading(true);
+      setSaving(true);
       setError("");
 
       await runQuery(insertQuery);
@@ -182,11 +197,12 @@ export default function DateMatchApp() {
     } catch (submitError) {
       setError(submitError.message || "프로필 저장 또는 매칭 계산에 실패했습니다.");
     } finally {
-      setLoading(false);
+      setSaving(false);
     }
   }
 
-  const isButtonDisabled = !form.name.trim() || !form.mbti || !form.hobby.trim() || loading;
+  const isBusy = saving || parentLoading;
+  const isButtonDisabled = !form.name.trim() || !form.mbti || !form.hobby.trim() || isBusy;
 
   return (
     <section style={S.panel}>
@@ -266,7 +282,7 @@ export default function DateMatchApp() {
               }}
               disabled={isButtonDisabled}
             >
-              {loading ? (
+              {isBusy ? (
                 <span style={S.loadingWrap}>
                   <span style={S.heartPulse}>&#x2764;&#xFE0F;</span>
                   <span>매칭 중..</span>
@@ -280,7 +296,7 @@ export default function DateMatchApp() {
 
         {error ? <div style={S.errorBox}>{error}</div> : null}
 
-        {loading && !results ? (
+        {isBusy && !results ? (
           <div style={S.loadingSection}>
             <div style={S.loadingHeart}>&#x2764;&#xFE0F;</div>
             <p style={S.loadingText}>저장된 프로필을 불러오는 중입니다.</p>
@@ -345,7 +361,7 @@ export default function DateMatchApp() {
             <div style={S.resultsBanner}>
               <p style={S.resultsTitle}>저장된 사람들</p>
               <p style={S.resultsSub}>
-                초기 상태에서는 `SELECT * FROM profiles;` 결과를 보여줍니다.
+                패널 1에서 `SELECT * FROM profiles;`를 실행하면 이 목록이 다시 갱신됩니다.
               </p>
             </div>
 

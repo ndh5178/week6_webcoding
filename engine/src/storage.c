@@ -8,7 +8,9 @@
 
 #ifdef _WIN32
 #include <direct.h>
-#define mkdir(path) _mkdir(path)
+#define MKDIR(path) _mkdir(path)
+#else
+#define MKDIR(path) mkdir(path, 0755)
 #endif
 
 static void set_error(char *error, int error_size, const char *message) {
@@ -28,7 +30,7 @@ static int ensure_data_dir(char *error, int error_size) {
         return 1;
     }
 
-    if (mkdir(DATA_DIR, 0755) != 0) {
+    if (MKDIR(DATA_DIR) != 0) {
         set_error(error, error_size, strerror(errno));
         return 0;
     }

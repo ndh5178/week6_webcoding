@@ -6,7 +6,7 @@ import DateMatchApp from "./components/DateMatchApp";
 
 const DEFAULT_QUERY = "SELECT * FROM profiles;";
 const DEFAULT_MESSAGE =
-  "왼쪽 CLI에서 profile SQL을 실행하면 parse tree와 panel 3 기준 데이터 흐름이 함께 갱신됩니다.";
+  "왼쪽 CLI에서 profile SQL을 실행하면 parse tree와 panel 3 데이터 흐름이 함께 갱신됩니다.";
 
 export default function App() {
   const [query, setQuery] = useState(DEFAULT_QUERY);
@@ -77,15 +77,20 @@ export default function App() {
           <h1 style={styles.title}>Cupid SQL Integration Page</h1>
         </div>
         <p style={styles.subtitle}>
-          패널 1은 profile SQL 입력, 패널 2는 parse tree 시각화, 패널 3은 현재
-          브랜치의 데이트 매칭 서비스 UI를 기준으로 둔 통합 페이지입니다.
+          패널 1은 profile SQL 입력, 패널 2는 parse tree 시각화, 패널 3은 데이트
+          매칭 UI를 기준으로 한 결과 패널입니다.
         </p>
       </section>
 
       <section style={styles.grid}>
         <CliPanel initialQuery={query} isRunning={loading} onRun={handleRun} />
         <ParseTreePanel parseTree={parseTree} />
-        <DateMatchApp />
+        <DateMatchApp
+          rows={rows}
+          queryType={queryType}
+          loading={loading}
+          error={error}
+        />
       </section>
     </main>
   );
