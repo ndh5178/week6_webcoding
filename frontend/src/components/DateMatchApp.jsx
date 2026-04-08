@@ -14,6 +14,8 @@ const HOBBY_EMOJIS = {
   여행: "✈️",
   운동: "🏃",
   음악: "🎵",
+  travel: "✈️",
+  reading: "📚",
 };
 
 const AVATAR_COLORS = [
@@ -285,7 +287,7 @@ export default function DateMatchApp({
               {isBusy ? (
                 <span style={S.loadingWrap}>
                   <span style={S.heartPulse}>&#x2764;&#xFE0F;</span>
-                  <span>매칭 중..</span>
+                  <span>매칭 중...</span>
                 </span>
               ) : (
                 "내 짝궁 찾기"
@@ -314,7 +316,7 @@ export default function DateMatchApp({
 
             {results.matched.length === 0 ? (
               <div style={S.emptyState}>
-                <div style={S.emptyHeart}>💌</div>
+                <div style={S.emptyHeart}>💞</div>
                 <p style={S.emptyText}>아직 비교할 다른 프로필이 부족합니다.</p>
               </div>
             ) : (
@@ -361,13 +363,13 @@ export default function DateMatchApp({
             <div style={S.resultsBanner}>
               <p style={S.resultsTitle}>저장된 사람들</p>
               <p style={S.resultsSub}>
-                패널 1에서 `SELECT * FROM profiles;`를 실행하면 이 목록이 다시 갱신됩니다.
+                패널 1에서 <code>SELECT * FROM profiles;</code>를 실행하면 이 목록이 다시 갱신됩니다.
               </p>
             </div>
 
             {profiles.length === 0 ? (
               <div style={S.emptyState}>
-                <div style={S.emptyHeart}>💗</div>
+                <div style={S.emptyHeart}>🫶</div>
                 <p style={S.emptyText}>
                   아직 저장된 프로필이 없습니다. 먼저 한 명을 등록해보세요.
                 </p>
