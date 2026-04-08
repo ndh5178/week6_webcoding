@@ -1,345 +1,296 @@
 import { useEffect, useMemo, useState } from "react";
 
-const DEFAULT_EXAMPLES = [
-  {
-    label: "INSERT 예제",
-    query: "INSERT INTO comments VALUES (1, 'kim', 'hello');",
-  },
-  {
-    label: "SELECT 전체",
-    query: "SELECT * FROM comments;",
-  },
-  {
-    label: "SELECT WHERE",
-    query: "SELECT author, content FROM comments WHERE id = 1;",
-  },
+const EXAMPLES = [
+  "INSERT INTO comments VALUES (1, 'kim', 'hello');",
+  "SELECT * FROM comments;",
+  "SELECT author, content FROM comments WHERE id = 1;",
 ];
 
-const styles = {
-  panel: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "16px",
-    height: "100%",
-    padding: "20px",
-    background: "#111827",
-    color: "#e5eefc",
-  },
-  header: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "6px",
-  },
-  headerTop: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-    gap: "12px",
-  },
-  eyebrow: {
-    margin: 0,
-    fontSize: "12px",
-    fontWeight: 700,
-    letterSpacing: "0.08em",
-    textTransform: "uppercase",
-    color: "#7dd3fc",
-  },
-  title: {
-    margin: "8px 0 0",
-    fontSize: "24px",
-  },
-  subtitle: {
-    margin: "8px 0 0",
-    color: "#93a7c4",
-    fontSize: "14px",
-    lineHeight: 1.6,
-  },
-  status: {
-    padding: "6px 10px",
-    borderRadius: "999px",
-    background: "#1e293b",
-    color: "#cbd5e1",
-    fontSize: "12px",
-  },
-  card: {
-    background: "#0f172a",
-    border: "1px solid #223250",
-    borderRadius: "14px",
-    padding: "16px",
-  },
-  cardTitle: {
-    margin: 0,
-    fontSize: "14px",
-    fontWeight: 700,
-    color: "#f8fafc",
-  },
-  examplesWrap: {
-    display: "flex",
-    flexWrap: "wrap",
-    gap: "10px",
-    marginTop: "12px",
-  },
-  exampleButton: {
-    border: "1px solid #31486f",
-    background: "#16233f",
-    color: "#dbeafe",
-    borderRadius: "10px",
-    padding: "10px 12px",
-    fontSize: "13px",
-    fontWeight: 600,
-    cursor: "pointer",
-  },
-  form: {
-    ...{
-      background: "#0f172a",
-      border: "1px solid #223250",
-      borderRadius: "14px",
-      padding: "16px",
-    },
-    display: "flex",
-    flexDirection: "column",
-    gap: "14px",
-    flex: 1,
-  },
-  formTop: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  helper: {
-    color: "#7d92b3",
-    fontSize: "12px",
-  },
-  textarea: {
-    width: "100%",
-    minHeight: "180px",
-    resize: "vertical",
-    borderRadius: "12px",
-    border: "1px solid #31486f",
-    background: "#08111f",
-    color: "#e5eefc",
-    padding: "14px",
-    fontSize: "14px",
-    lineHeight: 1.6,
-    fontFamily: "Consolas, 'JetBrains Mono', monospace",
-    outline: "none",
-    boxSizing: "border-box",
-    flex: 1,
-  },
-  formBottom: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: "12px",
-  },
-  contract: {
-    color: "#93a7c4",
-    fontSize: "12px",
-  },
-  runButton: {
-    minWidth: "120px",
-    borderRadius: "10px",
-    padding: "10px 14px",
-    fontSize: "13px",
-    fontWeight: 700,
-    border: "1px solid #3b82f6",
-    background: "#2563eb",
-    color: "#ffffff",
-    cursor: "pointer",
-  },
-  disabledButton: {
-    background: "#223250",
-    borderColor: "#31486f",
-    cursor: "not-allowed",
-  },
-  historyList: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "8px",
-    marginTop: "12px",
-  },
-  historyButton: {
-    textAlign: "left",
-    border: "1px solid #223250",
-    background: "#0b1629",
-    color: "#dbeafe",
-    borderRadius: "10px",
-    padding: "10px 12px",
-    cursor: "pointer",
-    fontFamily: "Consolas, 'JetBrains Mono', monospace",
-    fontSize: "12px",
-  },
-  emptyHistory: {
-    marginTop: "12px",
-    color: "#7d92b3",
-    fontSize: "13px",
-    lineHeight: 1.6,
-  },
-  footer: {
-    borderTop: "1px solid #1f2937",
-    paddingTop: "12px",
-  },
-  message: {
-    margin: 0,
-    color: "#cbd5e1",
-    fontSize: "13px",
-  },
-  error: {
-    margin: "8px 0 0",
-    color: "#fca5a5",
-    fontSize: "13px",
-  },
-};
-
-function formatHistoryLabel(query, index) {
-  const singleLine = query.replace(/\s+/g, " ").trim();
-  if (singleLine.length <= 64) {
-    return `${index + 1}. ${singleLine}`;
-  }
-  return `${index + 1}. ${singleLine.slice(0, 61)}...`;
-}
-
 export default function CliPanel({
-  onRun,
-  loading = false,
-  examples = DEFAULT_EXAMPLES,
   initialQuery = "",
+  loading = false,
   message = "",
   error = "",
+  onRun,
 }) {
-  const [query, setQuery] = useState(initialQuery);
+  const [query, setQuery] = useState(initialQuery || EXAMPLES[0]);
   const [history, setHistory] = useState([]);
-  const isRunnable = typeof onRun === "function";
-
-  const normalizedExamples = useMemo(
-    () => (Array.isArray(examples) && examples.length > 0 ? examples : DEFAULT_EXAMPLES),
-    [examples],
-  );
 
   useEffect(() => {
-    setQuery(initialQuery || "");
+    if (typeof initialQuery === "string") {
+      setQuery(initialQuery);
+    }
   }, [initialQuery]);
 
-  function submitQuery(nextQuery) {
-    const trimmed = nextQuery.trim();
+  const statusLabel = useMemo(() => {
+    if (loading) return "실행 중";
+    if (error) return "오류";
+    return "준비";
+  }, [loading, error]);
 
-    if (!trimmed || !isRunnable || loading) {
+  function handleExampleClick(example) {
+    setQuery(example);
+  }
+
+  function handleSubmit() {
+    const trimmed = query.trim();
+    if (!trimmed || typeof onRun !== "function") {
       return;
     }
 
-    setHistory((prev) => {
-      const withoutDuplicate = prev.filter((item) => item !== trimmed);
-      return [trimmed, ...withoutDuplicate].slice(0, 8);
-    });
-
+    setHistory((prev) => [trimmed, ...prev.filter((item) => item !== trimmed)].slice(0, 5));
     onRun(trimmed);
-  }
-
-  function handleSubmit(event) {
-    event.preventDefault();
-    submitQuery(query);
-  }
-
-  function handleExampleClick(exampleQuery) {
-    setQuery(exampleQuery);
-  }
-
-  function handleKeyDown(event) {
-    if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
-      event.preventDefault();
-      submitQuery(query);
-    }
   }
 
   return (
     <section style={styles.panel}>
       <header style={styles.header}>
-        <div style={styles.headerTop}>
-          <div>
-            <p style={styles.eyebrow}>Panel 1</p>
-            <h2 style={styles.title}>CLI</h2>
-          </div>
-          <span style={styles.status}>{loading ? "실행 중" : "준비됨"}</span>
+        <div>
+          <p style={styles.eyebrow}>PANEL 1</p>
+          <h2 style={styles.title}>CLI</h2>
         </div>
-        <p style={styles.subtitle}>
-          SQL 입력을 받고 실행 요청만 부모로 전달합니다. 실제 실행과 결과 처리는 이 패널 밖에서 이뤄집니다.
-        </p>
+        <span style={styles.badge(statusLabel, error)}>{statusLabel}</span>
       </header>
 
-      <div style={styles.card}>
-        <p style={styles.cardTitle}>예제 SQL</p>
-        <div style={styles.examplesWrap}>
-          {normalizedExamples.map((example) => (
-            <button
-              key={`${example.label}-${example.query}`}
-              type="button"
-              onClick={() => handleExampleClick(example.query)}
-              style={styles.exampleButton}
-            >
-              {example.label}
-            </button>
-          ))}
-        </div>
+      <div style={styles.examples}>
+        {EXAMPLES.map((example) => (
+          <button
+            key={example}
+            type="button"
+            style={styles.exampleButton}
+            onClick={() => handleExampleClick(example)}
+          >
+            {example}
+          </button>
+        ))}
       </div>
 
-      <form onSubmit={handleSubmit} style={styles.form}>
-        <div style={styles.formTop}>
-          <p style={styles.cardTitle}>SQL 입력</p>
-          <div style={styles.helper}>Ctrl/Cmd + Enter로 실행</div>
+      <div style={styles.console}>
+        <div style={styles.consoleToolbar}>
+          <span style={styles.consoleDot("#22c55e")} />
+          <span style={styles.consoleDot("#f59e0b")} />
+          <span style={styles.consoleDot("#ef4444")} />
+          <span style={styles.consoleLabel}>sql-console</span>
         </div>
-
-        <textarea
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder="예: SELECT * FROM comments;"
-          spellCheck={false}
-          style={styles.textarea}
-        />
-
-        <div style={styles.formBottom}>
-          <div style={styles.contract}>
-            공통 계약: <code>docs/contracts.md</code>
-            {!isRunnable ? " · 실행 핸들러 연결 대기 중" : ""}
-          </div>
-          <button
-            type="submit"
-            disabled={!query.trim() || loading || !isRunnable}
-            style={{
-              ...styles.runButton,
-              ...(!query.trim() || loading || !isRunnable ? styles.disabledButton : {}),
-            }}
-          >
-            {loading ? "실행 중..." : "실행"}
-          </button>
+        <div style={styles.editor}>
+          <span style={styles.prompt}>db &gt;</span>
+          <textarea
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            spellCheck={false}
+            style={styles.textarea}
+            placeholder="SQL을 입력하세요."
+          />
         </div>
-      </form>
-
-      <div style={styles.card}>
-        <p style={styles.cardTitle}>입력 히스토리</p>
-        {history.length === 0 ? (
-          <div style={styles.emptyHistory}>아직 실행한 SQL이 없습니다. 예제 SQL을 선택하거나 직접 입력해보세요.</div>
-        ) : (
-          <div style={styles.historyList}>
-            {history.map((item, index) => (
-              <button
-                key={`${item}-${index}`}
-                type="button"
-                onClick={() => setQuery(item)}
-                style={styles.historyButton}
-                title={item}
-              >
-                {formatHistoryLabel(item, index)}
-              </button>
-            ))}
-          </div>
-        )}
       </div>
 
       <div style={styles.footer}>
-        <p style={styles.message}>{message}</p>
-        {error ? <p style={styles.error}>{error}</p> : null}
+        <div style={styles.feedback}>
+          <p style={styles.feedbackLabel}>실행 상태</p>
+          <p style={styles.feedbackText(error)}>{error || message || "아직 실행하지 않았습니다."}</p>
+        </div>
+        <button type="button" style={styles.runButton(loading)} onClick={handleSubmit} disabled={loading}>
+          {loading ? "실행 중..." : "Run Query"}
+        </button>
+      </div>
+
+      <div style={styles.historySection}>
+        <p style={styles.historyTitle}>최근 실행</p>
+        {history.length === 0 ? (
+          <p style={styles.emptyText}>아직 실행한 쿼리가 없습니다.</p>
+        ) : (
+          <ul style={styles.historyList}>
+            {history.map((item) => (
+              <li key={item} style={styles.historyItem}>
+                <button type="button" style={styles.historyButton} onClick={() => setQuery(item)}>
+                  {item}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
     </section>
   );
 }
+
+const styles = {
+  panel: {
+    minHeight: "720px",
+    display: "flex",
+    flexDirection: "column",
+    gap: "16px",
+    padding: "20px",
+    borderRadius: "24px",
+    background: "rgba(15, 23, 42, 0.92)",
+    border: "1px solid rgba(148, 163, 184, 0.16)",
+    boxShadow: "0 18px 40px rgba(0, 0, 0, 0.25)",
+  },
+  header: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  eyebrow: {
+    margin: 0,
+    fontSize: "11px",
+    letterSpacing: "0.16em",
+    fontWeight: 700,
+    color: "#38bdf8",
+  },
+  title: {
+    margin: "8px 0 0",
+    fontSize: "34px",
+    fontWeight: 800,
+  },
+  badge: (label, hasError) => ({
+    padding: "8px 14px",
+    borderRadius: "999px",
+    fontSize: "12px",
+    fontWeight: 700,
+    color: hasError ? "#fecaca" : "#dbeafe",
+    background: hasError ? "rgba(127, 29, 29, 0.45)" : "rgba(30, 41, 59, 0.95)",
+    border: `1px solid ${hasError ? "rgba(248, 113, 113, 0.35)" : "rgba(96, 165, 250, 0.2)"}`,
+  }),
+  examples: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "8px",
+  },
+  exampleButton: {
+    width: "100%",
+    textAlign: "left",
+    padding: "10px 14px",
+    borderRadius: "14px",
+    border: "1px solid rgba(96, 165, 250, 0.18)",
+    background: "rgba(15, 23, 42, 0.7)",
+    color: "#cbd5e1",
+    cursor: "pointer",
+    fontFamily: '"JetBrains Mono", "Fira Code", monospace',
+    fontSize: "12px",
+  },
+  console: {
+    flex: 1,
+    minHeight: "320px",
+    borderRadius: "18px",
+    overflow: "hidden",
+    background: "#020617",
+    border: "1px solid rgba(59, 130, 246, 0.18)",
+  },
+  consoleToolbar: {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    padding: "10px 12px",
+    background: "rgba(15, 23, 42, 0.95)",
+    borderBottom: "1px solid rgba(148, 163, 184, 0.12)",
+  },
+  consoleDot: (color) => ({
+    width: "10px",
+    height: "10px",
+    borderRadius: "999px",
+    background: color,
+  }),
+  consoleLabel: {
+    marginLeft: "6px",
+    color: "#94a3b8",
+    fontSize: "12px",
+    fontFamily: '"JetBrains Mono", "Fira Code", monospace',
+  },
+  editor: {
+    display: "grid",
+    gridTemplateColumns: "auto 1fr",
+    gap: "10px",
+    height: "100%",
+    padding: "16px",
+  },
+  prompt: {
+    paddingTop: "2px",
+    color: "#38bdf8",
+    fontFamily: '"JetBrains Mono", "Fira Code", monospace',
+    fontSize: "13px",
+    fontWeight: 700,
+  },
+  textarea: {
+    width: "100%",
+    minHeight: "300px",
+    resize: "none",
+    border: "none",
+    outline: "none",
+    background: "transparent",
+    color: "#e2e8f0",
+    fontFamily: '"JetBrains Mono", "Fira Code", monospace',
+    fontSize: "14px",
+    lineHeight: 1.7,
+  },
+  footer: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "flex-end",
+    gap: "16px",
+  },
+  feedback: {
+    flex: 1,
+  },
+  feedbackLabel: {
+    margin: 0,
+    color: "#94a3b8",
+    fontSize: "12px",
+    fontWeight: 700,
+  },
+  feedbackText: (hasError) => ({
+    margin: "6px 0 0",
+    color: hasError ? "#fca5a5" : "#e2e8f0",
+    lineHeight: 1.6,
+    fontSize: "14px",
+  }),
+  runButton: (loading) => ({
+    padding: "14px 20px",
+    borderRadius: "14px",
+    border: "none",
+    cursor: loading ? "progress" : "pointer",
+    fontWeight: 700,
+    color: "#082f49",
+    background: loading ? "#7dd3fc" : "#38bdf8",
+    minWidth: "132px",
+    boxShadow: "0 10px 20px rgba(14, 165, 233, 0.22)",
+  }),
+  historySection: {
+    borderTop: "1px solid rgba(148, 163, 184, 0.12)",
+    paddingTop: "14px",
+  },
+  historyTitle: {
+    margin: 0,
+    color: "#cbd5e1",
+    fontWeight: 700,
+    fontSize: "14px",
+  },
+  historyList: {
+    margin: "10px 0 0",
+    padding: 0,
+    listStyle: "none",
+    display: "flex",
+    flexDirection: "column",
+    gap: "8px",
+  },
+  historyItem: {
+    margin: 0,
+  },
+  historyButton: {
+    width: "100%",
+    textAlign: "left",
+    border: "1px solid rgba(148, 163, 184, 0.14)",
+    borderRadius: "12px",
+    padding: "10px 12px",
+    background: "rgba(15, 23, 42, 0.6)",
+    color: "#94a3b8",
+    cursor: "pointer",
+    fontFamily: '"JetBrains Mono", "Fira Code", monospace',
+    fontSize: "12px",
+  },
+  emptyText: {
+    margin: "10px 0 0",
+    color: "#64748b",
+    fontSize: "13px",
+  },
+};

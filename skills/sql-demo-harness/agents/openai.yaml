@@ -1,0 +1,4 @@
+interface:
+  display_name: "SQL Demo Harness"
+  short_description: "Build the 3-panel C SQL demo end to end"
+  default_prompt: "Use $sql-demo-harness to wire the C engine, backend bridge, and three-panel UI into one working demo."

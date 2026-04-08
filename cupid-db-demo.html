@@ -1,0 +1,695 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Cupid-DB</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --tinder-gradient: linear-gradient(135deg, #FD267A 0%, #FF6036 100%);
+      --bg-dark: #FFFFFF;
+      --bg-card: #F8F8F8;
+      --bg-elevated: #F0F0F0;
+      --bg-input: #F5F5F5;
+      --text-primary: #1A1A1A;
+      --text-secondary: #666666;
+      --text-muted: #999999;
+      --border: #E8E8E8;
+      --accent: #FD267A;
+      --accent-orange: #FF6036;
+      --success: #00C07F;
+      --error: #FF4458;
+      --purple: #7C3AED;
+      --cyan: #0891B2;
+      --yellow: #D97706;
+    }
+
+    body {
+      background: var(--bg-dark);
+      color: var(--text-primary);
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    /* ── 전체 레이아웃 ──────────────────────────────── */
+    .app {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+    }
+
+    /* ── 상단 바 ────────────────────────────────────── */
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 24px;
+      background: var(--bg-dark);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .topbar-logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .topbar-flame {
+      width: 32px;
+      height: 32px;
+      background: var(--tinder-gradient);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+    }
+    .topbar-title {
+      font-size: 20px;
+      font-weight: 800;
+      background: var(--tinder-gradient);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      letter-spacing: -0.5px;
+    }
+    .topbar-subtitle {
+      font-size: 12px;
+      color: var(--text-muted);
+      font-weight: 500;
+    }
+    .topbar-flow {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+    .flow-step {
+      padding: 4px 12px;
+      border-radius: 20px;
+      background: var(--bg-elevated);
+      font-weight: 500;
+    }
+    .flow-step.active {
+      background: var(--tinder-gradient);
+      color: #fff;
+    }
+    .flow-arrow { color: #CCC; }
+
+    /* ── 3 패널 ─────────────────────────────────────── */
+    .panels {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    .panel {
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .panel + .panel { border-left: 1px solid var(--border); }
+
+    .panel-header {
+      padding: 14px 20px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: var(--bg-card);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .panel-icon {
+      width: 28px;
+      height: 28px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      flex-shrink: 0;
+    }
+    .panel-label {
+      font-size: 13px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .panel-desc {
+      font-size: 11px;
+      color: var(--text-muted);
+      font-weight: 400;
+    }
+
+    /* ── CLI Panel ──────────────────────────────────── */
+    .cli-icon { background: var(--bg-elevated); }
+    .cli-output {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px 20px;
+      font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+      font-size: 12px;
+      line-height: 1.8;
+      background: var(--bg-dark);
+    }
+    .cli-output .prompt { color: var(--accent); font-weight: 600; }
+    .cli-output .sql-text { color: var(--text-primary); }
+    .cli-output .ok { color: var(--success); font-weight: 600; }
+    .cli-output .err { color: var(--error); font-weight: 600; }
+    .cli-output .result-text { color: var(--text-secondary); margin-left: 4px; }
+    .cli-output .divider { color: #ccc; font-size: 11px; }
+    .cli-output .welcome { color: var(--text-muted); }
+
+    .examples {
+      display: flex;
+      gap: 6px;
+      padding: 10px 20px;
+      background: var(--bg-card);
+      border-top: 1px solid var(--border);
+      flex-wrap: wrap;
+    }
+    .ex-btn {
+      padding: 6px 14px;
+      border-radius: 20px;
+      border: 1px solid #333;
+      background: var(--bg-elevated);
+      color: var(--text-secondary);
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      font-family: 'SF Mono', 'Consolas', monospace;
+      transition: all 0.2s;
+    }
+    .ex-btn:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+      background: rgba(253, 38, 122, 0.1);
+    }
+
+    .cli-input-wrap {
+      display: flex;
+      align-items: center;
+      background: var(--bg-card);
+      border-top: 1px solid var(--border);
+      padding: 0 20px;
+    }
+    .cli-prompt-label {
+      color: var(--accent);
+      font-family: 'SF Mono', 'Consolas', monospace;
+      font-weight: 700;
+      font-size: 12px;
+      white-space: nowrap;
+      padding-right: 8px;
+    }
+    .cli-input {
+      flex: 1;
+      background: transparent;
+      border: none;
+      color: var(--text-primary);
+      font-family: 'SF Mono', 'Consolas', monospace;
+      font-size: 12px;
+      padding: 14px 0;
+      outline: none;
+    }
+    .cli-input::placeholder { color: #BBB; }
+    .run-btn {
+      padding: 6px 16px;
+      border-radius: 20px;
+      border: none;
+      background: var(--tinder-gradient);
+      color: #fff;
+      font-weight: 700;
+      font-size: 11px;
+      cursor: pointer;
+      transition: opacity 0.2s;
+    }
+    .run-btn:hover { opacity: 0.85; }
+
+    /* ── Parse Tree Panel ───────────────────────────── */
+    .parse-icon { background: rgba(168, 85, 247, 0.15); color: var(--purple); }
+    .parse-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px;
+      background: var(--bg-dark);
+    }
+    .parse-empty {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      color: var(--text-muted);
+      gap: 8px;
+    }
+    .parse-empty-icon { font-size: 32px; opacity: 0.4; }
+
+    .tree-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 0;
+    }
+    .tree-indent { width: 24px; flex-shrink: 0; text-align: center; color: #CCC; font-size: 12px; }
+    .tree-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 4px 12px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-family: 'SF Mono', 'Consolas', monospace;
+      font-weight: 600;
+    }
+    .chip-type { background: #F3E8FF; color: var(--purple); border: 1px solid #DDD6FE; }
+    .chip-table { background: #E0F7FA; color: var(--cyan); border: 1px solid #B2EBF2; }
+    .chip-val { background: #E8FFF5; color: var(--success); border: 1px solid #A7F3D0; }
+    .chip-where { background: #FFF0F3; color: var(--accent); border: 1px solid #FECDD3; }
+
+    /* ── Service Panel ──────────────────────────────── */
+    .svc-icon { background: rgba(253, 38, 122, 0.15); color: var(--accent); }
+
+    .svc-banner {
+      padding: 16px 20px;
+      background: var(--tinder-gradient);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      animation: slideDown 0.3s ease;
+    }
+    @keyframes slideDown {
+      from { opacity: 0; transform: translateY(-100%); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .svc-banner-icon { font-size: 22px; }
+    .svc-banner-text {
+      font-size: 14px;
+      font-weight: 800;
+      color: #fff;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+    }
+
+    .svc-status {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 20px;
+      background: var(--bg-card);
+      border-bottom: 1px solid var(--border);
+      font-size: 12px;
+    }
+    .svc-badge {
+      padding: 3px 10px;
+      border-radius: 20px;
+      background: var(--tinder-gradient);
+      color: #fff;
+      font-weight: 700;
+      font-size: 10px;
+      letter-spacing: 0.5px;
+    }
+    .svc-msg { color: var(--text-secondary); }
+
+    .svc-cards {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      background: var(--bg-dark);
+    }
+
+    .svc-card {
+      background: var(--bg-card);
+      border-radius: 16px;
+      padding: 16px;
+      border: 1px solid var(--border);
+      animation: cardPop 0.35s ease;
+      transition: border-color 0.2s;
+    }
+    .svc-card:hover { border-color: #ccc; box-shadow: 0 4px 12px rgba(0,0,0,0.06); }
+    @keyframes cardPop {
+      from { opacity: 0; transform: scale(0.95) translateY(10px); }
+      to { opacity: 1; transform: scale(1) translateY(0); }
+    }
+    .svc-card-top {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .svc-avatar {
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      background: var(--tinder-gradient);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      font-size: 18px;
+      color: #fff;
+      flex-shrink: 0;
+    }
+    .svc-name {
+      font-weight: 700;
+      font-size: 15px;
+      color: var(--text-primary);
+    }
+    .svc-id {
+      font-size: 11px;
+      color: var(--text-muted);
+      font-weight: 500;
+    }
+    .svc-content {
+      margin-top: 10px;
+      margin-left: 56px;
+      font-size: 14px;
+      color: var(--text-secondary);
+      line-height: 1.6;
+      padding: 10px 14px;
+      background: var(--bg-elevated);
+      border-radius: 12px;
+      border-top-left-radius: 4px;
+    }
+
+    .svc-welcome {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      gap: 12px;
+    }
+    .svc-welcome-flame {
+      width: 64px;
+      height: 64px;
+      border-radius: 50%;
+      background: var(--tinder-gradient);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 28px;
+      opacity: 0.7;
+    }
+    .svc-welcome-title {
+      font-size: 18px;
+      font-weight: 800;
+      background: var(--tinder-gradient);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .svc-welcome-desc {
+      color: var(--text-muted);
+      font-size: 13px;
+      text-align: center;
+      line-height: 1.5;
+    }
+
+    .svc-footer {
+      padding: 10px 20px;
+      border-top: 1px solid var(--border);
+      background: var(--bg-card);
+      font-size: 12px;
+      color: var(--text-muted);
+      text-align: right;
+      font-weight: 500;
+    }
+
+    .svc-no-data {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      color: var(--text-muted);
+      gap: 8px;
+    }
+
+    /* ── 스크롤바 ───────────────────────────────────── */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #D4D4D4; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #BBB; }
+  </style>
+</head>
+<body>
+
+<div class="app">
+  <!-- ── Top Bar ── -->
+  <div class="topbar">
+    <div class="topbar-logo">
+      <div class="topbar-flame">&#x1F525;</div>
+      <div>
+        <div class="topbar-title">Cupid-DB</div>
+        <div class="topbar-subtitle">SQL-Powered Matchmaking Engine</div>
+      </div>
+    </div>
+    <div class="topbar-flow">
+      <span class="flow-step" id="flowCli">CLI Input</span>
+      <span class="flow-arrow">&#x2192;</span>
+      <span class="flow-step" id="flowParse">Parse Tree</span>
+      <span class="flow-arrow">&#x2192;</span>
+      <span class="flow-step" id="flowService">Service</span>
+    </div>
+  </div>
+
+  <!-- ── 3 Panels ── -->
+  <div class="panels">
+
+    <!-- ═══ Panel 1: CLI ═══ -->
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-icon cli-icon">&#x276F;</div>
+        <div>
+          <div class="panel-label">CLI</div>
+          <div class="panel-desc">SQL Input Terminal</div>
+        </div>
+      </div>
+      <div class="cli-output" id="cliOutput">
+        <div class="welcome">&#x1F525; Welcome to Cupid-DB v0.1</div>
+        <div class="welcome">Type SQL or click examples below</div>
+        <br/>
+      </div>
+      <div class="examples">
+        <button class="ex-btn" onclick="runQuery(&quot;INSERT INTO comments VALUES (1, 'kim', 'hello');&quot;)">INSERT kim</button>
+        <button class="ex-btn" onclick="runQuery(&quot;INSERT INTO comments VALUES (2, 'lee', 'nice to meet you');&quot;)">INSERT lee</button>
+        <button class="ex-btn" onclick="runQuery(&quot;INSERT INTO comments VALUES (3, 'park', 'looking for someone');&quot;)">INSERT park</button>
+        <button class="ex-btn" onclick="runQuery(&quot;SELECT * FROM comments;&quot;)">SELECT *</button>
+        <button class="ex-btn" onclick="runQuery(&quot;DELETE FROM comments WHERE id = 1;&quot;)">DELETE #1</button>
+      </div>
+      <div class="cli-input-wrap">
+        <span class="cli-prompt-label">&#x276F;</span>
+        <input class="cli-input" id="cliInput" type="text" placeholder="INSERT INTO comments VALUES (1, 'kim', 'hello');"
+          onkeydown="if(event.key==='Enter'){runQuery(this.value);this.value='';}" />
+        <button class="run-btn" onclick="runQuery(document.getElementById('cliInput').value);document.getElementById('cliInput').value='';">RUN</button>
+      </div>
+    </div>
+
+    <!-- ═══ Panel 2: Parse Tree ═══ -->
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-icon parse-icon">&#x1F333;</div>
+        <div>
+          <div class="panel-label">Parse Tree</div>
+          <div class="panel-desc">X-Ray Query Structure</div>
+        </div>
+      </div>
+      <div class="parse-body" id="parseBody">
+        <div class="parse-empty">
+          <div class="parse-empty-icon">&#x1F333;</div>
+          <div>Query structure appears here</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ Panel 3: Service ═══ -->
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-icon svc-icon">&#x1F525;</div>
+        <div>
+          <div class="panel-label">Service</div>
+          <div class="panel-desc">Match Results</div>
+        </div>
+      </div>
+      <div id="svcBanner"></div>
+      <div id="svcStatus"></div>
+      <div class="svc-cards" id="svcCards">
+        <div class="svc-welcome">
+          <div class="svc-welcome-flame">&#x1F525;</div>
+          <div class="svc-welcome-title">Cupid-DB</div>
+          <div class="svc-welcome-desc">SQL을 실행하면<br/>매칭 결과가 여기에 표시됩니다</div>
+        </div>
+      </div>
+      <div class="svc-footer" id="svcFooter"></div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+  // ── In-Memory DB ──────────────────────────────────
+  const db = [];
+
+  // ── Flow indicator ────────────────────────────────
+  function activateFlow(step) {
+    ["flowCli", "flowParse", "flowService"].forEach(id =>
+      document.getElementById(id).classList.remove("active")
+    );
+    const steps = { cli: "flowCli", parse: "flowParse", service: "flowService" };
+    if (steps[step]) document.getElementById(steps[step]).classList.add("active");
+  }
+
+  // ── SQL Executor ──────────────────────────────────
+  function executeSQL(sql) {
+    const trimmed = sql.trim().replace(/;$/, "");
+
+    // INSERT
+    const ins = trimmed.match(/INSERT\s+INTO\s+comments\s+VALUES\s*\(\s*(\d+)\s*,\s*'([^']*)'\s*,\s*'([^']*)'\s*\)/i);
+    if (ins) {
+      const row = { id: +ins[1], author: ins[2], content: ins[3] };
+      if (db.find(r => r.id === row.id))
+        return { ok: false, type: "INSERT", msg: `id ${row.id} already exists`, tree: mkTree("INSERT","comments",null,row), rows: [...db] };
+      db.push(row);
+      return { ok: true, type: "INSERT", msg: "Executed. New profile registered!", tree: mkTree("INSERT","comments",null,row), rows: [...db] };
+    }
+
+    // SELECT
+    if (trimmed.toUpperCase().startsWith("SELECT")) {
+      const wh = trimmed.match(/WHERE\s+(\w+)\s*=\s*(\d+|'[^']*')/i);
+      let rows = [...db], cond = null;
+      if (wh) {
+        const col = wh[1].toLowerCase();
+        let val = wh[2].replace(/'/g, "");
+        if (!isNaN(val)) val = +val;
+        rows = db.filter(r => String(r[col]) === String(val));
+        cond = { col, val };
+      }
+      return { ok: true, type: "SELECT", msg: `${rows.length} match(es) found`, tree: mkTree("SELECT","comments",cond,null), rows };
+    }
+
+    // DELETE
+    const del = trimmed.match(/DELETE\s+FROM\s+comments\s+WHERE\s+(\w+)\s*=\s*(\d+|'[^']*')/i);
+    if (del) {
+      const col = del[1].toLowerCase();
+      let val = del[2].replace(/'/g, "");
+      if (!isNaN(val)) val = +val;
+      const idx = db.findIndex(r => String(r[col]) === String(val));
+      if (idx === -1)
+        return { ok: false, type: "DELETE", msg: "No match found", tree: mkTree("DELETE","comments",{col,val},null), rows: [...db] };
+      const gone = db.splice(idx, 1)[0];
+      return { ok: true, type: "DELETE", msg: `Ghosted! '${gone.author}' removed`, tree: mkTree("DELETE","comments",{col,val},null), rows: [...db] };
+    }
+
+    return { ok: false, type: "ERROR", msg: "Syntax error", tree: null, rows: [...db] };
+  }
+
+  function mkTree(type, table, cond, vals) { return { type, table, cond, vals }; }
+
+  // ── CLI Render ────────────────────────────────────
+  function cliAppend(html) {
+    const el = document.getElementById("cliOutput");
+    el.innerHTML += html;
+    el.scrollTop = el.scrollHeight;
+  }
+
+  // ── Parse Tree Render ─────────────────────────────
+  function renderTree(tree) {
+    const el = document.getElementById("parseBody");
+    if (!tree) { el.innerHTML = '<div class="parse-empty"><div class="parse-empty-icon">&#x26A0;</div><div>Parse failed</div></div>'; return; }
+
+    let h = '';
+    h += `<div class="tree-row"><div class="tree-indent"></div><span class="tree-chip chip-type">${tree.type}</span></div>`;
+    h += `<div class="tree-row"><div class="tree-indent">&#x251C;</div><span class="tree-chip chip-table">TABLE ${tree.table}</span></div>`;
+
+    if (tree.vals) {
+      h += `<div class="tree-row"><div class="tree-indent">&#x251C;</div><span class="tree-chip chip-val">VALUES</span></div>`;
+      for (const [k,v] of Object.entries(tree.vals))
+        h += `<div class="tree-row"><div class="tree-indent" style="padding-left:24px">&#x251C;</div><span class="tree-chip chip-val">${k}: ${v}</span></div>`;
+    }
+    if (tree.cond)
+      h += `<div class="tree-row"><div class="tree-indent">&#x2514;</div><span class="tree-chip chip-where">WHERE ${tree.cond.col} = ${tree.cond.val}</span></div>`;
+
+    el.innerHTML = h;
+  }
+
+  // ── Service Panel Render ──────────────────────────
+  function renderService(res) {
+    const themes = {
+      INSERT: { icon: "\uD83D\uDC98", text: "NEW MATCH!" },
+      SELECT: { icon: "\uD83D\uDD25", text: "MATCH RESULTS" },
+      DELETE: { icon: "\uD83D\uDC94", text: "GHOSTED" },
+      ERROR:  { icon: "\u26A0\uFE0F", text: "ERROR" },
+    };
+    const t = themes[res.type] || { icon: "\u2699\uFE0F", text: res.type };
+
+    document.getElementById("svcBanner").innerHTML =
+      `<div class="svc-banner"><span class="svc-banner-icon">${t.icon}</span><span class="svc-banner-text">${t.text}</span></div>`;
+
+    document.getElementById("svcStatus").innerHTML =
+      `<div class="svc-status"><span class="svc-badge">${res.type}</span><span class="svc-msg">${res.msg}</span></div>`;
+
+    const cards = document.getElementById("svcCards");
+    if (res.rows.length === 0) {
+      cards.innerHTML = '<div class="svc-no-data"><div style="font-size:32px;opacity:0.3">&#x1F494;</div><div>No profiles yet</div></div>';
+    } else {
+      cards.innerHTML = res.rows.map((r, i) => `
+        <div class="svc-card" style="animation-delay:${i * 0.06}s">
+          <div class="svc-card-top">
+            <div class="svc-avatar">${(r.author||"?")[0].toUpperCase()}</div>
+            <div>
+              <div class="svc-name">${r.author}</div>
+              <div class="svc-id">#${r.id}</div>
+            </div>
+          </div>
+          <div class="svc-content">${r.content}</div>
+        </div>
+      `).join("");
+    }
+
+    document.getElementById("svcFooter").textContent =
+      res.rows.length > 0 ? `${res.rows.length} profile(s)` : "";
+  }
+
+  // ── Run Query ─────────────────────────────────────
+  function runQuery(sql) {
+    if (!sql || !sql.trim()) return;
+    document.getElementById("cliInput").value = "";
+
+    // 1. CLI
+    activateFlow("cli");
+    cliAppend(`<div><span class="prompt">&#x276F;</span> <span class="sql-text">${sql}</span></div>`);
+
+    setTimeout(() => {
+      // 2. Parse
+      activateFlow("parse");
+      const res = executeSQL(sql);
+
+      if (res.ok) {
+        cliAppend(`<div><span class="ok">&#x2713;</span><span class="result-text">${res.msg}</span></div><br/>`);
+      } else {
+        cliAppend(`<div><span class="err">&#x2717;</span><span class="result-text">${res.msg}</span></div><br/>`);
+      }
+
+      renderTree(res.tree);
+
+      setTimeout(() => {
+        // 3. Service
+        activateFlow("service");
+        renderService(res);
+
+        setTimeout(() => activateFlow(null), 1000);
+      }, 300);
+    }, 200);
+  }
+</script>
+
+</body>
+</html>
