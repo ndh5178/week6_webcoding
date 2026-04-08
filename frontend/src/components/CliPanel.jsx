@@ -248,21 +248,53 @@ export default function CliPanel({
     };
   }, []);
 
-  function handleExampleClick(query) {
-    const socket = socketRef.current;
-
-    if (!socket || socket.readyState !== WebSocket.OPEN || connectionState !== "connected") {
+  async function handleExampleClick(query) {
+    if (!canRunExamples(connectionState)) {
       return;
     }
 
-    socket.send(
-      JSON.stringify({
-        type: "run-query",
-        query,
-      }),
-    );
+    const terminal = terminalRef.current;
+    onQueryStartRef.current?.(query);
+    setStatusMessage(`Running: ${query}`);
+    terminal?.write(`\r\ndb > ${query}\r\n`);
 
-    terminalRef.current?.focus();
+    try {
+      const response = await fetch("/api/query", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ query }),
+      });
+
+      const payload = await response.json();
+      const nextPayload = {
+        success: Boolean(response.ok && payload.success !== false),
+        queryType: payload.queryType ?? "",
+        message: payload.message ?? (response.ok ? "Executed." : "Query failed."),
+        parseTree: payload.parseTree ?? null,
+        rows: Array.isArray(payload.rows) ? payload.rows : [],
+        rawOutput: payload.rawOutput ?? "",
+      };
+
+      writeExampleResult(terminal, nextPayload);
+      setStatusMessage(nextPayload.message);
+      onQueryResultRef.current?.(nextPayload);
+    } catch (error) {
+      const failedPayload = {
+        success: false,
+        queryType: inferQueryType(query),
+        message: error.message || "Unexpected backend error.",
+        parseTree: null,
+        rows: [],
+        rawOutput: "",
+      };
+      writeExampleResult(terminal, failedPayload);
+      setStatusMessage(failedPayload.message);
+      onQueryResultRef.current?.(failedPayload);
+    }
+
+    terminal?.focus();
   }
 
   return (
@@ -289,9 +321,9 @@ export default function CliPanel({
             <button
               key={`${example.label}-${example.query}`}
               type="button"
-              disabled={connectionState !== "connected"}
+              disabled={!canRunExamples(connectionState)}
               onClick={() => handleExampleClick(example.query)}
-              style={styles.exampleButton(connectionState === "connected")}
+              style={styles.exampleButton(canRunExamples(connectionState))}
             >
               {example.label}
             </button>
@@ -332,6 +364,41 @@ function buildWebSocketUrl() {
   }
 
   return `${protocol}://${window.location.host}/ws/terminal`;
+}
+
+function canRunExamples(connectionState) {
+  return connectionState === "connected" || connectionState === "shell";
+}
+
+function inferQueryType(query) {
+  const upper = String(query ?? "").trim().toUpperCase();
+  if (upper.startsWith("INSERT")) {
+    return "INSERT";
+  }
+  if (upper.startsWith("SELECT")) {
+    return "SELECT";
+  }
+  return "UNKNOWN";
+}
+
+function writeExampleResult(terminal, payload) {
+  if (!terminal) {
+    return;
+  }
+
+  const lines = [];
+
+  if (Array.isArray(payload.rows)) {
+    payload.rows.forEach((row) => {
+      if (row && typeof row === "object") {
+        const ordered = Object.values(row).map((value) => String(value ?? "").trim());
+        lines.push(`(${ordered.join(", ")})`);
+      }
+    });
+  }
+
+  lines.push(payload.message || (payload.success ? "Executed." : "Query failed."));
+  terminal.write(`${lines.join("\r\n")}\r\ndb > `);
 }
 
 function normalizeConnectionStatus(status) {

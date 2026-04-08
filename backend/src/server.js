@@ -120,6 +120,16 @@ wss.on("connection", (socket) => {
 
     try {
       session.launchEngine();
+
+      // Some Windows PTY sessions do not surface the first `db >` prompt
+      // until an extra newline is sent after launch.
+      setTimeout(() => {
+        if (!session || engineReady) {
+          return;
+        }
+
+        session.write("\r");
+      }, 120);
     } catch (error) {
       send(socket, {
         type: "system-error",

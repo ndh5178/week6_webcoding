@@ -63,19 +63,33 @@ function calculateScore(person, target) {
   return Math.min(score, 100);
 }
 
-function normalizeProfiles(rows) {
+function normalizeProfiles(rows, fallbackProfiles = []) {
   if (!Array.isArray(rows)) {
     return [];
   }
 
+  const fallbackMap = new Map(
+    fallbackProfiles.map((profile) => [
+      `${String(profile.name ?? "").trim()}::${String(profile.hobby ?? "").trim()}`,
+      profile,
+    ]),
+  );
+
   return rows
     .filter((row) => row && typeof row === "object")
-    .map((row, index) => ({
-      id: `${row.name ?? "profile"}-${index}`,
-      name: String(row.name ?? "").trim(),
-      mbti: String(row.mbti ?? "").trim().toUpperCase(),
-      hobby: String(row.hobby ?? "").trim(),
-    }))
+    .map((row, index) => {
+      const name = String(row.name ?? "").trim();
+      const hobby = String(row.hobby ?? "").trim();
+      const mbti = String(row.mbti ?? "").trim().toUpperCase();
+      const fallback = fallbackMap.get(`${name}::${hobby}`);
+
+      return {
+        id: `${name || "profile"}-${index}`,
+        name,
+        mbti: mbti || String(fallback?.mbti ?? "").trim().toUpperCase(),
+        hobby,
+      };
+    })
     .filter((row) => row.name && row.mbti && row.hobby);
 }
 
@@ -144,7 +158,7 @@ export default function DateMatchApp({
       return;
     }
 
-    setProfiles(normalizeProfiles(rows));
+    setProfiles((currentProfiles) => normalizeProfiles(rows, currentProfiles));
     setResults(null);
     setError(parentError || "");
   }, [rows, queryType, parentError]);
