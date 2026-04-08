@@ -2,7 +2,7 @@ import { useState } from "react";
 
 import CliPanel from "./components/CliPanel";
 import ParseTreePanel from "./components/ParseTreePanel";
-import ServicePanel from "./components/ServicePanel";
+import DateMatchApp from "./components/DateMatchApp";
 
 const DEFAULT_QUERY = "SELECT * FROM comments;";
 const DEFAULT_MESSAGE =
@@ -85,13 +85,7 @@ export default function App() {
       <section style={styles.grid}>
         <CliPanel initialQuery={query} isRunning={loading} onRun={handleRun} />
         <ParseTreePanel parseTree={parseTree} />
-        <ServicePanel
-          rows={rows}
-          queryType={queryType}
-          message={message}
-          loading={loading}
-          error={error}
-        />
+        <DateMatchApp />
       </section>
     </main>
   );

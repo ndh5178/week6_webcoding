@@ -28,7 +28,7 @@ static int ensure_data_dir(char *error, int error_size) {
         return 1;
     }
 
-    if (mkdir(DATA_DIR) != 0) {
+    if (mkdir(DATA_DIR, 0755) != 0) {
         set_error(error, error_size, strerror(errno));
         return 0;
     }
