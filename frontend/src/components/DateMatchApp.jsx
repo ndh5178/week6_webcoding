@@ -97,16 +97,6 @@ function buildProfileKey(profile) {
   return `${profile.name}::${profile.mbti}::${profile.hobby}`;
 }
 
-function mergeProfiles(...profileGroups) {
-  const merged = new Map();
-
-  profileGroups.flat().forEach((profile) => {
-    merged.set(buildProfileKey(profile), profile);
-  });
-
-  return [...merged.values()];
-}
-
 function sortProfiles(left, right) {
   return left.name.localeCompare(right.name, "ko");
 }
@@ -178,7 +168,6 @@ export default function DateMatchApp({
     }
 
     setProfiles((currentProfiles) => normalizeProfiles(rows, currentProfiles));
-    setResults(null);
     setError(parentError || "");
   }, [rows, queryType, parentError]);
 
@@ -221,88 +210,61 @@ export default function DateMatchApp({
       const nextProfiles = normalizeProfiles(payload.rows);
       setProfiles(nextProfiles);
 
-      const exactMatchQuery = `SELECT * FROM profiles WHERE mbti = '${escapeSqlValue(
-        target.mbti,
-      )}' AND hobby = '${escapeSqlValue(target.hobby)}';`;
-      const relatedMatchQuery = `SELECT * FROM profiles WHERE mbti = '${escapeSqlValue(
-        target.mbti,
-      )}' OR hobby = '${escapeSqlValue(target.hobby)}';`;
-
-      const [exactPayload, relatedPayload] = await Promise.all([
-        activeRunQuery(exactMatchQuery, {
-          updateSharedState: false,
-          trackLoading: false,
-        }),
-        activeRunQuery(relatedMatchQuery, {
-          updateSharedState: false,
-          trackLoading: false,
-        }),
-      ]);
-
-      const candidateProfiles = mergeProfiles(
-        normalizeProfiles(exactPayload.rows, nextProfiles),
-        normalizeProfiles(relatedPayload.rows, nextProfiles),
+      const candidateProfiles = nextProfiles.filter(
+        (person) =>
+          !(
+            person.name === target.name &&
+            person.mbti === target.mbti &&
+            person.hobby === target.hobby
+          ),
       );
 
-      const exactMatches = normalizeProfiles(exactPayload.rows, nextProfiles)
-        .filter(
-          (person) =>
-            !(
-              person.name === target.name &&
-              person.mbti === target.mbti &&
-              person.hobby === target.hobby
-            ),
-        )
+      const exactMatches = candidateProfiles
+        .filter((person) => person.mbti === target.mbti && person.hobby === target.hobby)
         .sort(sortProfiles);
 
-      const relatedMatches = normalizeProfiles(relatedPayload.rows, nextProfiles)
+      const relatedMatches = candidateProfiles
         .filter(
           (person) =>
-            !(
-              person.name === target.name &&
-              person.mbti === target.mbti &&
-              person.hobby === target.hobby
-            ),
-        )
-        .filter(
-          (person) =>
-            !exactMatches.some(
-              (exactPerson) =>
-                exactPerson.name === person.name &&
-                exactPerson.mbti === person.mbti &&
-                exactPerson.hobby === person.hobby,
-            ),
+            (person.mbti === target.mbti || person.hobby === target.hobby) &&
+            !(person.mbti === target.mbti && person.hobby === target.hobby),
         )
         .sort(sortProfiles);
 
       const matched = candidateProfiles
-        .filter(
-          (person) =>
-            !(
-              person.name === target.name &&
-              person.mbti === target.mbti &&
-              person.hobby === target.hobby
-            ),
-        )
         .map((person) => {
           const score = calculateScore(person, target);
-          const isExactMatch = exactMatches.some(
+          const matchSource = exactMatches.some(
             (exactPerson) =>
               exactPerson.name === person.name &&
               exactPerson.mbti === person.mbti &&
               exactPerson.hobby === person.hobby,
-          );
+          )
+            ? "exact"
+            : relatedMatches.some(
+                (relatedPerson) =>
+                  relatedPerson.name === person.name &&
+                  relatedPerson.mbti === person.mbti &&
+                  relatedPerson.hobby === person.hobby,
+              )
+              ? "related"
+              : "scored";
 
           return {
             ...person,
             score,
-            matchSource: isExactMatch ? "exact" : "related",
+            matchSource,
             comment: buildComment(person, target, score),
           };
         })
         .sort((left, right) => {
           if (left.matchSource !== right.matchSource) {
-            return left.matchSource === "exact" ? -1 : 1;
+            const priority = {
+              exact: 0,
+              related: 1,
+              scored: 2,
+            };
+            return priority[left.matchSource] - priority[right.matchSource];
           }
 
           if (left.score !== right.score) {
@@ -432,6 +394,7 @@ export default function DateMatchApp({
               </p>
               <p style={S.resultsMeta}>
                 AND 정확 일치 {results.exactMatches.length}명 · OR 관련 후보 {results.relatedMatches.length}명
+                · 전체 비교 {results.matched.length}명
               </p>
             </div>
 
@@ -464,10 +427,16 @@ export default function DateMatchApp({
                           style={
                             person.matchSource === "exact"
                               ? S.exactTag
-                              : S.relatedTag
+                              : person.matchSource === "related"
+                                ? S.relatedTag
+                                : S.hobbyTag
                           }
                         >
-                          {person.matchSource === "exact" ? "AND 일치" : "OR 후보"}
+                          {person.matchSource === "exact"
+                            ? "AND 일치"
+                            : person.matchSource === "related"
+                              ? "OR 후보"
+                              : "점수 비교"}
                         </span>
                         <span style={S.hobbyTag}>
                           {HOBBY_EMOJIS[person.hobby] || "✨"} {person.hobby}
